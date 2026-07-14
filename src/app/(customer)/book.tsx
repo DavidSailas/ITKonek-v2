@@ -1,5 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker, {
+  DateTimePickerAndroid,
+} from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -55,19 +57,18 @@ export default function BookScreen() {
   const [locationAddress, setLocationAddress] = useState("");
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledDate, setScheduledDate] = useState(new Date());
+  // Only used on iOS now — Android uses the imperative API below and
+  // manages its own native dialog, so it doesn't need a "visible" flag.
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Linked/default payment method — loaded from the customer's profile
   const [linkedMethod, setLinkedMethod] = useState<PaymentMethod | null>(null);
   const [linkedCardLast4, setLinkedCardLast4] = useState<string | null>(null);
   const [linkedCardPaymentMethodId, setLinkedCardPaymentMethodId] = useState<
     string | null
   >(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
-
-  // Link modal state
   const [linkModalMethod, setLinkModalMethod] = useState<PaymentMethod | null>(
     null,
   );
@@ -123,8 +124,6 @@ export default function BookScreen() {
     setLinkModalMethod(method);
   };
 
-  // Tokenizes the card directly with PayMongo using only the PUBLIC key —
-  // card details never touch our own Supabase.
   const handleLinkCard = async () => {
     if (
       !cardNumber.trim() ||
@@ -222,6 +221,39 @@ export default function BookScreen() {
     setLinkedMethod(method);
     setLinkedCardPaymentMethodId(cardPaymentMethodId);
     setLinkedCardLast4(cardLast4);
+  };
+
+  // ---- DATE PICKER --------------------------------------------------------
+  // Android: never mount <DateTimePicker/> as JSX — it doesn't render a real
+  // view there, it's an imperative wrapper. Keeping it mounted causes the
+  // "Cannot read property 'dismiss' of undefined" crash on unmount, because
+  // its cleanup effect fires against a ref that was never attached.
+  // Use DateTimePickerAndroid.open() directly instead.
+  const openDatePicker = () => {
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: scheduledDate,
+        mode: "date",
+        minimumDate: new Date(),
+        onChange: (event, date) => {
+          if (event.type !== "set" || !date) return;
+          // Chain a time picker so the result is a combined date+time,
+          // same as the old single "datetime" mode.
+          DateTimePickerAndroid.open({
+            value: date,
+            mode: "time",
+            onChange: (timeEvent, time) => {
+              if (timeEvent.type !== "set" || !time) return;
+              const combined = new Date(date);
+              combined.setHours(time.getHours(), time.getMinutes());
+              setScheduledDate(combined);
+            },
+          });
+        },
+      });
+    } else {
+      setShowDatePicker(true);
+    }
   };
 
   const handleSubmit = async () => {
@@ -384,7 +416,7 @@ export default function BookScreen() {
               ]}
               onPress={() => {
                 setScheduleMode("later");
-                setShowDatePicker(true);
+                openDatePicker();
               }}
             >
               <Text
@@ -401,7 +433,7 @@ export default function BookScreen() {
           {scheduleMode === "later" && (
             <TouchableOpacity
               style={styles.dateDisplay}
-              onPress={() => setShowDatePicker(true)}
+              onPress={openDatePicker}
             >
               <Ionicons name="calendar-outline" size={18} color="#111827" />
               <Text style={styles.dateDisplayText}>
@@ -410,13 +442,17 @@ export default function BookScreen() {
             </TouchableOpacity>
           )}
 
-          {showDatePicker && (
+          {/* Only ever mounted on iOS — on Android, DateTimePickerAndroid.open() (above) handles it */}
+          {Platform.OS === "ios" && showDatePicker && (
             <DateTimePicker
               value={scheduledDate}
               mode="datetime"
               minimumDate={new Date()}
               onChange={(event, date) => {
-                setShowDatePicker(Platform.OS === "ios");
+                if (event.type === "dismissed") {
+                  setShowDatePicker(false);
+                  return;
+                }
                 if (date) setScheduledDate(date);
               }}
             />
@@ -527,7 +563,6 @@ export default function BookScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Link Payment Method Modal */}
       <Modal
         visible={!!linkModalMethod}
         transparent
