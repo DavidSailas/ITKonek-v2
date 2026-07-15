@@ -45,7 +45,10 @@ export default function PasswordSecurityScreen() {
 
     setSaving(true);
     try {
-      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      const credential = EmailAuthProvider.credential(
+        user.email,
+        currentPassword,
+      );
       await reauthenticateWithCredential(user, credential);
       await updatePassword(user, newPassword);
       Alert.alert("Success", "Your password has been updated.");
@@ -54,8 +57,14 @@ export default function PasswordSecurityScreen() {
       setConfirmPassword("");
     } catch (err: any) {
       console.error("Password change error:", err);
-      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-        Alert.alert("Incorrect password", "Your current password is incorrect.");
+      if (
+        err.code === "auth/wrong-password" ||
+        err.code === "auth/invalid-credential"
+      ) {
+        Alert.alert(
+          "Incorrect password",
+          "Your current password is incorrect.",
+        );
       } else {
         Alert.alert("Something went wrong", err.message ?? "Please try again.");
       }
@@ -67,7 +76,10 @@ export default function PasswordSecurityScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.push("/(customer)/(tabs)/settings")}
+          style={styles.backButton}
+        >
           <Ionicons name="chevron-back" size={22} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.title}>Password & Security</Text>
@@ -131,7 +143,13 @@ const styles = StyleSheet.create({
   backButton: { padding: 8 },
   title: { fontSize: 18, fontWeight: "800", color: "#111827", marginLeft: 4 },
   content: { paddingHorizontal: 20, paddingTop: 12 },
-  label: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6, marginTop: 4 },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+    marginTop: 4,
+  },
   input: {
     height: 48,
     borderWidth: 1,

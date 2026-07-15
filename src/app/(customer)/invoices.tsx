@@ -98,10 +98,14 @@ export default function InvoicesScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F9FAFB" translucent />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#F9FAFB"
+        translucent
+      />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => router.push("/(customer)/(tabs)/home")}
           style={styles.backButton}
         >
           <Ionicons name="chevron-back" size={22} color="#111827" />
@@ -163,7 +167,9 @@ export default function InvoicesScreen() {
                   <View
                     style={[
                       styles.statusBadge,
-                      isPaid ? styles.statusBadgePaid : styles.statusBadgeUnpaid,
+                      isPaid
+                        ? styles.statusBadgePaid
+                        : styles.statusBadgeUnpaid,
                     ]}
                   >
                     <Ionicons
@@ -210,7 +216,11 @@ export default function InvoicesScreen() {
                 <View style={styles.receiptHandle} />
 
                 <View style={styles.receiptBrandRow}>
-                  <Ionicons name="hardware-chip-outline" size={20} color="#111827" />
+                  <Ionicons
+                    name="hardware-chip-outline"
+                    size={20}
+                    color="#111827"
+                  />
                   <Text style={styles.receiptBrand}>ITKonek Receipt</Text>
                 </View>
 

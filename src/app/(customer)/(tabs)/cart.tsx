@@ -31,7 +31,7 @@ export default function CartScreen() {
         </Text>
         <TouchableOpacity
           style={styles.browseButton}
-          onPress={() => router.push("/(customer)/(tabs)/search" as any)}
+          onPress={() => router.push("/(customer)/shop" as any)}
         >
           <Text style={styles.browseButtonText}>Browse Services</Text>
         </TouchableOpacity>

@@ -15,11 +15,29 @@ import {
 import { auth } from "../../../config/firebase";
 import { supabase } from "../../../config/supabase";
 
+const PRESENCE_CHANNEL_NAME = "presence:app-users";
+
+function formatRelativeTime(iso: string | null) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d`;
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 export default function TechChatScreen() {
   const router = useRouter();
   const [threads, setThreads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
 
   useFocusEffect(
     useCallback(() => {
@@ -27,9 +45,27 @@ export default function TechChatScreen() {
     }, []),
   );
 
-  // Live updates while this screen is open: newly accepted jobs open a
-  // fresh thread instantly, and new client messages update the preview
-  // without needing to leave and come back to this tab.
+  useEffect(() => {
+    const presenceChannel = supabase.channel(PRESENCE_CHANNEL_NAME, {
+      config: { presence: { key: auth.currentUser?.uid ?? "anonymous" } },
+    });
+
+    presenceChannel
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceChannel.presenceState();
+        setOnlineIds(new Set(Object.keys(state)));
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
+    };
+  }, []);
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -96,7 +132,12 @@ export default function TechChatScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Messages</Text>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.title}>Messages</Text>
+          {threads.length > 0 && (
+            <Text style={styles.headerCount}>{threads.length}</Text>
+          )}
+        </View>
         <Text style={styles.headerSub}>Direct client communication</Text>
       </View>
 
@@ -125,45 +166,70 @@ export default function TechChatScreen() {
             </Text>
           </View>
         ) : (
-          threads.map((thread) => (
-            <TouchableOpacity
-              key={thread.id}
-              style={[
-                styles.threadCard,
-                thread.is_locked && styles.threadCardLocked,
-              ]}
-              activeOpacity={0.7}
-              onPress={() => openThread(thread)}
-            >
-              <View style={styles.avatar}>
-                <Ionicons name="person" size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.threadName}>
-                  {thread.customer?.first_name} {thread.customer?.last_name}
-                </Text>
-                <Text
-                  style={[
-                    styles.threadPreview,
-                    thread.is_locked && styles.threadPreviewLocked,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {thread.is_locked
-                    ? "Conversation closed · job completed"
-                    : (thread.last_message ?? "Tap to open conversation")}
-                </Text>
-              </View>
-              {thread.is_locked ? (
-                <View style={styles.lockBadge}>
-                  <Ionicons name="lock-closed" size={11} color="#888888" />
-                  <Text style={styles.lockBadgeText}>Closed</Text>
+          threads.map((thread) => {
+            const name =
+              `${thread.customer?.first_name ?? ""} ${thread.customer?.last_name ?? ""}`.trim() ||
+              "Customer";
+            const initials = name
+              .split(" ")
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((n: string) => n[0]?.toUpperCase())
+              .join("");
+            const isOnline = onlineIds.has(thread.customer_id);
+
+            return (
+              <TouchableOpacity
+                key={thread.id}
+                style={[
+                  styles.threadCard,
+                  thread.is_locked && styles.threadCardLocked,
+                ]}
+                activeOpacity={0.7}
+                onPress={() => openThread(thread)}
+              >
+                <View style={styles.avatarWrap}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{initials || "?"}</Text>
+                  </View>
+                  {isOnline && !thread.is_locked && (
+                    <View style={styles.onlineDot} />
+                  )}
                 </View>
-              ) : (
-                <Ionicons name="chevron-forward" size={16} color="#555555" />
-              )}
-            </TouchableOpacity>
-          ))
+                <View style={{ flex: 1 }}>
+                  <View style={styles.threadTopRow}>
+                    <Text style={styles.threadName} numberOfLines={1}>
+                      {name}
+                    </Text>
+                    {!thread.is_locked && thread.updated_at && (
+                      <Text style={styles.threadTime}>
+                        {formatRelativeTime(thread.updated_at)}
+                      </Text>
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.threadPreview,
+                      thread.is_locked && styles.threadPreviewLocked,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {thread.is_locked
+                      ? "Conversation closed · job completed"
+                      : (thread.last_message ?? "Tap to open conversation")}
+                  </Text>
+                </View>
+                {thread.is_locked ? (
+                  <View style={styles.lockBadge}>
+                    <Ionicons name="lock-closed" size={11} color="#888888" />
+                    <Text style={styles.lockBadgeText}>Closed</Text>
+                  </View>
+                ) : (
+                  <Ionicons name="chevron-forward" size={16} color="#555555" />
+                )}
+              </TouchableOpacity>
+            );
+          })
         )}
       </ScrollView>
     </SafeAreaView>
@@ -183,7 +249,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#1A1A1A",
   },
+  headerTopRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 20, fontWeight: "800", color: "#FFFFFF" },
+  headerCount: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#AAAAAA",
+    backgroundColor: "#1A1A1A",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
   headerSub: { fontSize: 12, color: "#888888", marginTop: 2 },
   list: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 },
   emptyState: { alignItems: "center", paddingTop: 80, gap: 6 },
@@ -201,6 +277,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   threadCardLocked: { backgroundColor: "#0F0F0F", borderColor: "#1A1A1A" },
+  avatarWrap: { position: "relative" },
   avatar: {
     width: 44,
     height: 44,
@@ -211,7 +288,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  threadName: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
+  avatarText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  onlineDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: "#22c55e",
+    borderWidth: 2,
+    borderColor: "#0A0A0A",
+  },
+  threadTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  threadName: { fontSize: 14, fontWeight: "700", color: "#FFFFFF", flex: 1 },
+  threadTime: { fontSize: 10, color: "#666666", marginLeft: 8 },
   threadPreview: { fontSize: 12, color: "#888888", marginTop: 2 },
   threadPreviewLocked: { fontStyle: "italic" },
   lockBadge: {

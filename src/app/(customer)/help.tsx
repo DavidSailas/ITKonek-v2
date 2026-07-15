@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
-  Alert,
   Linking,
   Platform,
   SafeAreaView,
@@ -14,58 +13,122 @@ import {
   View,
 } from "react-native";
 
-const FAQS = [
+const HELP_SECTIONS = [
   {
-    q: "How do I cancel a booking?",
-    a: "You can cancel from the Home screen as long as no technician has accepted the job yet. Once accepted, contact support to make changes.",
+    title: "Booking & Service",
+    questions: [
+      {
+        q: "How do I cancel a booking?",
+        a: "Cancel via 'My Bookings'. If a tech is en route, please call our emergency support line.",
+      },
+      {
+        q: "Can I reschedule?",
+        a: "Yes, you can reschedule up to 2 hours before the service in the booking details screen.",
+      },
+      {
+        q: "What if I'm not at home?",
+        a: "Please ensure someone is available at your location. If you are delayed, notify the technician directly through the in-app chat.",
+      },
+    ],
   },
   {
-    q: "How do I know if my part is compatible?",
-    a: "Our technicians confirm compatibility during the diagnostic step before any part is installed.",
+    title: "Pricing & Payments",
+    questions: [
+      {
+        q: "Are there hidden fees?",
+        a: "No. Our pricing is transparent. Any additional parts or labor required will be approved by you through the app before work begins.",
+      },
+      {
+        q: "How do I get a receipt?",
+        a: "A digital receipt is automatically sent to your registered email address once the job is marked as completed.",
+      },
+    ],
   },
   {
-    q: "What if I'm not satisfied with the repair?",
-    a: "Reach out to support within 7 days of service completion and we'll help make it right.",
+    title: "Safety & Privacy",
+    questions: [
+      {
+        q: "Are technicians verified?",
+        a: "Yes, all ITKonek technicians undergo rigorous background checks and government identity verification.",
+      },
+      {
+        q: "How is my data used?",
+        a: "We only use your location to connect you with the nearest tech and improve arrival accuracy. Your data is encrypted and never shared with third parties.",
+      },
+    ],
+  },
+  {
+    title: "Post-Service",
+    questions: [
+      {
+        q: "Is there a warranty for the repair?",
+        a: "Yes, we offer a 7-day service guarantee. If the same issue persists, contact us within this period for a free follow-up visit.",
+      },
+    ],
   },
 ];
 
 export default function HelpScreen() {
   const router = useRouter();
 
-  const handleContact = () => {
-    Linking.openURL("mailto:support@itkonek.com").catch(() =>
-      Alert.alert("Couldn't open email", "Please email support@itkonek.com directly.")
-    );
-  };
-
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+
+      {/* Header with proper spacing for battery/status bar */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={22} color="#111827" />
+        <TouchableOpacity
+          onPress={() => router.push("/(customer)/(tabs)/settings")}
+          style={styles.backButton}
+        >
+          <Ionicons name="chevron-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.title}>Help & Support</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={styles.contactCard} onPress={handleContact}>
-          <View style={styles.contactIcon}>
-            <Ionicons name="headset-outline" size={22} color="#FFFFFF" />
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Urgent Support */}
+        <TouchableOpacity
+          style={styles.emergencyCard}
+          onPress={() => Linking.openURL("contact:+63 993 850 7294")}
+        >
+          <Ionicons name="alert-circle" size={24} color="#DC2626" />
+          <View style={{ marginLeft: 12 }}>
+            <Text style={styles.emergencyTitle}>Urgent Assistance</Text>
+            <Text style={styles.emergencySub}>
+              Available 24/7 for active bookings
+            </Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.contactTitle}>Contact Support</Text>
-            <Text style={styles.contactSubtitle}>support@itkonek.com — 24/7</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
-        {FAQS.map((item) => (
-          <View key={item.q} style={styles.faqCard}>
-            <Text style={styles.faqQ}>{item.q}</Text>
-            <Text style={styles.faqA}>{item.a}</Text>
+        {/* Standard Support */}
+        <TouchableOpacity
+          style={styles.contactCard}
+          onPress={() => Linking.openURL("mailto:support@itkonek.com")}
+        >
+          <View style={styles.contactIcon}>
+            <Ionicons name="mail-outline" size={24} color="#FFF" />
+          </View>
+          <View>
+            <Text style={styles.contactTitle}>Email Support</Text>
+            <Text style={styles.contactSubtitle}>Response within 2 hours</Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* FAQs */}
+        {HELP_SECTIONS.map((section, idx) => (
+          <View key={idx} style={styles.section}>
+            <Text style={styles.sectionHeader}>{section.title}</Text>
+            {section.questions.map((item, qIdx) => (
+              <View key={qIdx} style={styles.faqItem}>
+                <Text style={styles.faqQ}>{item.q}</Text>
+                <Text style={styles.faqA}>{item.a}</Text>
+              </View>
+            ))}
           </View>
         ))}
+
+        <Text style={styles.versionText}>App Version 1.0.4 (Build 2026)</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -74,47 +137,68 @@ export default function HelpScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
+    backgroundColor: "#FFF",
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 8,
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
   },
-  backButton: { padding: 8 },
-  title: { fontSize: 18, fontWeight: "800", color: "#111827", marginLeft: 4 },
-  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 40 },
+  backButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F6",
+  },
+  title: { fontSize: 20, fontWeight: "800", marginLeft: 10 },
+  content: { padding: 20 },
+  emergencyCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  emergencyTitle: { color: "#991B1B", fontWeight: "700" },
+  emergencySub: { color: "#B91C1C", fontSize: 12 },
   contactCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1A1A1A",
+    backgroundColor: "#111827",
     borderRadius: 16,
-    padding: 16,
-    gap: 14,
-    marginBottom: 28,
+    padding: 20,
+    marginBottom: 30,
   },
   contactIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "#2E2E2E",
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 15,
   },
-  contactTitle: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-  contactSubtitle: { color: "#9CA3AF", fontSize: 12, marginTop: 2 },
-  sectionTitle: { fontSize: 14, fontWeight: "800", color: "#111827", marginBottom: 12 },
-  faqCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    padding: 16,
-    marginBottom: 12,
+  contactTitle: { color: "#FFF", fontSize: 16, fontWeight: "700" },
+  contactSubtitle: { color: "#9CA3AF", fontSize: 13 },
+  section: { marginBottom: 25 },
+  sectionHeader: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 15,
+    color: "#111827",
   },
-  faqQ: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 6 },
-  faqA: { fontSize: 12, color: "#6B7280", lineHeight: 18 },
+  faqItem: { marginBottom: 20 },
+  faqQ: { fontWeight: "700", color: "#111827", marginBottom: 5 },
+  faqA: { color: "#6B7280", lineHeight: 20 },
+  versionText: {
+    textAlign: "center",
+    color: "#9CA3AF",
+    fontSize: 12,
+    marginTop: 20,
+  },
 });

@@ -44,6 +44,36 @@ const ACCOUNT_ITEMS: MenuItem[] = [
   },
 ];
 
+const PREFERENCE_ITEMS: MenuItem[] = [
+  {
+    icon: "notifications-outline",
+    label: "Notifications",
+    route: "/(customer)/notification",
+  },
+];
+
+const LEGAL_ITEMS: MenuItem[] = [
+  {
+    icon: "document-text-outline",
+    label: "Terms of Service",
+    route: "/(customer)/terms",
+  },
+  {
+    icon: "shield-checkmark-outline",
+    label: "Privacy Policy",
+    route: "/(customer)/privacy",
+  },
+];
+
+const FEEDBACK_ITEMS: MenuItem[] = [
+  {
+    icon: "chatbubble-ellipses-outline",
+    label: "Send Feedback",
+    route: "/(customer)/feedback",
+  },
+  { icon: "star-outline", label: "Rate ITKonek", route: "/(customer)/rate" },
+];
+
 const SUPPORT_ITEMS: MenuItem[] = [
   { icon: "help-circle-outline", label: "Help", route: "/(customer)/help" },
 ];
@@ -60,17 +90,11 @@ export default function SettingsScreen() {
   const fetchProfile = async () => {
     const user = auth.currentUser;
     if (!user) return;
-
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("profiles")
       .select("first_name, last_name, email, avatar_url")
       .eq("id", user.uid)
       .maybeSingle();
-
-    if (error) {
-      console.error("Settings profile fetch error:", error.message);
-      return;
-    }
     if (data) setProfile(data);
   };
 
@@ -79,109 +103,59 @@ export default function SettingsScreen() {
       "Profile Photo",
       "Choose an option to update your profile photo:",
       [
-        {
-          text: "Choose from Library",
-          onPress: pickAndUploadImage,
-        },
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Choose from Library", onPress: pickAndUploadImage },
+        { text: "Cancel", style: "cancel" },
       ],
     );
   };
 
   const pickAndUploadImage = async () => {
-    try {
-      const permissionResult =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert(
-          "Permission Denied",
-          "You need to grant photo library permissions to change your profile picture.",
-        );
-        return;
-      }
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) return;
 
-      // Base64 requested directly from Expo ImagePicker
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-        base64: true,
-      });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return;
-      }
-
-      const selectedAsset = result.assets[0];
-      if (!selectedAsset.base64) {
-        throw new Error("Could not read image data.");
-      }
-
-      await uploadAvatar(selectedAsset.base64, selectedAsset.uri);
-    } catch (err: any) {
-      console.error("Image picker error:", err);
-      Alert.alert("Error", err.message || "Could not select image.");
+    if (!result.canceled && result.assets[0].base64) {
+      await uploadAvatar(result.assets[0].base64, result.assets[0].uri);
     }
   };
 
   const uploadAvatar = async (base64Data: string, fileUri: string) => {
     const user = auth.currentUser;
     if (!user) return;
-
     setUploading(true);
     try {
-      const fileExt = fileUri.split(".").pop()?.toLowerCase() || "jpg";
-      const fileName = `${user.uid}/${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-      const contentType = fileExt === "png" ? "image/png" : "image/jpeg";
-
-      // Convert Base64 directly to ArrayBuffer
-      const arrayBuffer = decode(base64Data);
-
-      // Upload ArrayBuffer to Supabase Storage
-      const { error: uploadError } = await supabase.storage
+      const fileName = `${user.uid}/${Date.now()}.jpg`;
+      const { error } = await supabase.storage
         .from("avatars")
-        .upload(filePath, arrayBuffer, {
-          contentType,
+        .upload(fileName, decode(base64Data), {
+          contentType: "image/jpeg",
           upsert: true,
         });
-
-      if (uploadError) throw uploadError;
-
-      // Get Public URL
-      const { data: publicUrlData } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(filePath);
-
-      const publicUrl = publicUrlData.publicUrl;
-
-      // Update Profiles table
-      const { error: updateError } = await supabase
+      if (error) throw error;
+      const { data } = supabase.storage.from("avatars").getPublicUrl(fileName);
+      await supabase
         .from("profiles")
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: data.publicUrl })
         .eq("id", user.uid);
-
-      if (updateError) throw updateError;
-
-      setProfile((prev: any) => ({ ...prev, avatar_url: publicUrl }));
-      Alert.alert("Success", "Profile photo updated successfully!");
-    } catch (error: any) {
-      console.error("Upload error:", error);
-      Alert.alert(
-        "Upload Failed",
-        error.message || "Failed to update profile picture.",
-      );
+      setProfile((prev: any) => ({ ...prev, avatar_url: data.publicUrl }));
+      Alert.alert("Success", "Profile photo updated!");
+    } catch (err) {
+      Alert.alert("Error", "Failed to update photo.");
     } finally {
       setUploading(false);
     }
   };
 
   const handleLogout = () => {
-    Alert.alert("Log out", "Are you sure you want to log out?", [
+    Alert.alert("Log out", "Are you sure?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Log out",
@@ -231,7 +205,7 @@ export default function SettingsScreen() {
           <View style={styles.avatarCircleWrap}>
             <View style={styles.avatarCircle}>
               {uploading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator color="#FFF" />
               ) : profile?.avatar_url ? (
                 <Image
                   source={{ uri: profile.avatar_url }}
@@ -244,10 +218,9 @@ export default function SettingsScreen() {
               )}
             </View>
             <View style={styles.cameraBadge}>
-              <Ionicons name="camera" size={12} color="#FFFFFF" />
+              <Ionicons name="camera" size={12} color="#FFF" />
             </View>
           </View>
-
           <View style={{ flex: 1 }}>
             <Text style={styles.profileName}>
               {profile
@@ -255,14 +228,17 @@ export default function SettingsScreen() {
                 : "Loading..."}
             </Text>
             <Text style={styles.profileEmail}>{profile?.email ?? ""}</Text>
-            <Text style={styles.tapToEdit}>Tap to edit photo</Text>
           </View>
-
           <Ionicons name="chevron-forward" size={18} color="#C4C4C4" />
         </TouchableOpacity>
 
-        {renderGroup("Account Settings", ACCOUNT_ITEMS)}
-        {renderGroup("Support", SUPPORT_ITEMS)}
+        {renderGroup("Account", ACCOUNT_ITEMS)}
+        {renderGroup("Preferences", PREFERENCE_ITEMS)}
+        {renderGroup("Legal", LEGAL_ITEMS)}
+        {renderGroup("Support & Feedback", [
+          ...SUPPORT_ITEMS,
+          ...FEEDBACK_ITEMS,
+        ])}
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={18} color="#EF4444" />

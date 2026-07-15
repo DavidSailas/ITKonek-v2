@@ -13,14 +13,17 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import TechnicianDetailModal, {
+  TechnicianDetails,
+} from "../../../components/TechnicianDetailModal";
 import { auth } from "../../../config/firebase";
 import { supabase } from "../../../config/supabase";
 
@@ -63,6 +66,7 @@ const POPULAR_SERVICES = [
     desc: "Complete hardware checkup & error troubleshooting",
     price: "₱500",
     icon: "hardware-chip-outline" as const,
+    category: "Laptops",
   },
   {
     id: "2",
@@ -70,6 +74,7 @@ const POPULAR_SERVICES = [
     desc: "Clean installation of Windows or macOS",
     price: "₱800",
     icon: "desktop-outline" as const,
+    category: "Desktops",
   },
   {
     id: "3",
@@ -77,6 +82,7 @@ const POPULAR_SERVICES = [
     desc: "Router configuration & signal optimization",
     price: "₱1,200",
     icon: "wifi-outline" as const,
+    category: "Networking",
   },
   {
     id: "4",
@@ -84,6 +90,7 @@ const POPULAR_SERVICES = [
     desc: "Deep scan and protection setup",
     price: "₱650",
     icon: "shield-checkmark-outline" as const,
+    category: "Mobile",
   },
 ];
 
@@ -135,33 +142,167 @@ const WHY_CHOOSE_ITEMS = [
   },
 ];
 
+const TRUST_STATS = [
+  { id: "1", value: "4.9", label: "Avg. Rating", icon: "star" as const },
+  {
+    id: "2",
+    value: "12K+",
+    label: "Repairs Done",
+    icon: "checkmark-done-outline" as const,
+  },
+  {
+    id: "3",
+    value: "500+",
+    label: "Technicians",
+    icon: "people-outline" as const,
+  },
+];
+
+const HOW_IT_WORKS_STEPS = [
+  {
+    id: "1",
+    title: "Book a Service",
+    desc: "Choose your issue and schedule a convenient time.",
+    icon: "calendar-outline" as const,
+  },
+  {
+    id: "2",
+    title: "Get Matched",
+    desc: "A verified technician is dispatched to you.",
+    icon: "person-add-outline" as const,
+  },
+  {
+    id: "3",
+    title: "Device Fixed",
+    desc: "Pay securely once the repair is complete.",
+    icon: "checkmark-circle-outline" as const,
+  },
+];
+
+const JOB_STATUS_META: Record<
+  string,
+  { label: string; color: string; icon: keyof typeof Ionicons.glyphMap }
+> = {
+  pending: {
+    label: "Pending Confirmation",
+    color: "#F59E0B",
+    icon: "time-outline",
+  },
+  accepted: {
+    label: "Technician Assigned",
+    color: "#3B82F6",
+    icon: "checkmark-circle-outline",
+  },
+  en_route: {
+    label: "Technician En Route",
+    color: "#3B82F6",
+    icon: "navigate-outline",
+  },
+  arrived: {
+    label: "Technician Arrived",
+    color: "#8B5CF6",
+    icon: "location-outline",
+  },
+  in_progress: {
+    label: "Repair In Progress",
+    color: "#10B981",
+    icon: "construct-outline",
+  },
+  payment_pending: {
+    label: "Payment Pending",
+    color: "#EF4444",
+    icon: "card-outline",
+  },
+};
+
+const getJobStatusMeta = (status: string) =>
+  JOB_STATUS_META[status] ?? {
+    label: status.replace(/_/g, " "),
+    color: "#9CA3AF",
+    icon: "information-circle-outline" as const,
+  };
+
+const TESTIMONIALS = [
+  {
+    id: "1",
+    name: "Maria Santos",
+    text: "Technician arrived within the hour and fixed my laptop screen fast. Great service!",
+    rating: 5,
+  },
+  {
+    id: "2",
+    name: "James Cruz",
+    text: "Very transparent pricing, no surprises. Will definitely book again.",
+    rating: 5,
+  },
+  {
+    id: "3",
+    name: "Angela Reyes",
+    text: "My WiFi setup was a headache until this app matched me with a great tech.",
+    rating: 4,
+  },
+];
+
 function CustomerHomeScreenContent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
   const [userProfile, setUserProfile] = useState<any>(null);
   const [activeJob, setActiveJob] = useState<any>(null);
-  const [nearbyTechs, setNearbyTechs] = useState<any[]>([]);
+  const [nearbyTechs, setNearbyTechs] = useState<TechnicianDetails[]>([]);
+  const [selectedTechnician, setSelectedTechnician] =
+    useState<TechnicianDetails | null>(null);
+  const [techModalVisible, setTechModalVisible] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
-
-  // Billing Modal State
   const [billingModalVisible, setBillingModalVisible] =
     useState<boolean>(false);
   const [paying, setPaying] = useState<boolean>(false);
-
-  // Notification Modal, Unread Badge & 3-Dot Options Dropdown
   const [notificationsModalVisible, setNotificationsModalVisible] =
     useState<boolean>(false);
   const [notificationsMenuVisible, setNotificationsMenuVisible] =
     useState<boolean>(false);
   const [notifications, setNotifications] = useState<any[]>([]);
-
-  // Auto-banner carousel state
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
   const bannerScrollRef = useRef<ScrollView>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const isSearching = searchQuery.trim().length > 0;
 
-  // Re-fetch profile data instantly when navigating back to Home tab
+  const getFilteredServices = () => {
+    let list = POPULAR_SERVICES;
+    if (selectedCategory !== null) {
+      list = list.filter((service) => service.category === selectedCategory);
+    }
+    if (isSearching) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(
+        (service) =>
+          service.title.toLowerCase().includes(q) ||
+          service.desc.toLowerCase().includes(q) ||
+          service.category.toLowerCase().includes(q),
+      );
+    }
+    return list;
+  };
+  const displayedServices = getFilteredServices();
+
+  const filteredTechs = isSearching
+    ? nearbyTechs.filter((tech) =>
+        `${tech.first_name ?? ""} ${tech.last_name ?? ""}`
+          .toLowerCase()
+          .includes(searchQuery.trim().toLowerCase()),
+      )
+    : nearbyTechs;
+
+  const handleSearchSubmit = () => {
+    if (!isSearching) return;
+    router.push({
+      pathname: "/(customer)/(tabs)/search" as any,
+      params: { q: searchQuery.trim() },
+    });
+  };
+
+  const clearSearch = () => setSearchQuery("");
+
   useFocusEffect(
     useCallback(() => {
       fetchUserData();
@@ -174,11 +315,8 @@ function CustomerHomeScreenContent() {
     fetchNearbyTechnicians();
     fetchNotifications();
     fetchRecentInvoices();
-
     const user = auth.currentUser;
     if (!user) return;
-
-    // Realtime channel listening to BOTH 'bookings' and 'profiles' table updates
     const channel = supabase
       .channel("customer-home-realtime")
       .on(
@@ -208,7 +346,6 @@ function CustomerHomeScreenContent() {
         },
       )
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
@@ -225,27 +362,23 @@ function CustomerHomeScreenContent() {
         return nextIndex;
       });
     }, 4000);
-
     return () => clearInterval(interval);
   }, []);
 
   const fetchUserData = async () => {
     const user = auth.currentUser;
     if (!user) return;
-
     const { data } = await supabase
       .from("profiles")
       .select("first_name, last_name, avatar_url, email")
       .eq("id", user.uid)
       .maybeSingle();
-
     if (data) setUserProfile(data);
   };
 
   const fetchActiveJob = async () => {
     const user = auth.currentUser;
     if (!user) return;
-
     const { data } = await supabase
       .from("bookings")
       .select(
@@ -263,12 +396,9 @@ function CustomerHomeScreenContent() {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-
     if (data) {
       setActiveJob(data);
-      if (data.status === "payment_pending") {
-        setBillingModalVisible(true);
-      }
+      if (data.status === "payment_pending") setBillingModalVisible(true);
     } else {
       setActiveJob(null);
     }
@@ -277,70 +407,157 @@ function CustomerHomeScreenContent() {
   const fetchRecentInvoices = async () => {
     const user = auth.currentUser;
     if (!user) return;
-
     const { data } = await supabase
       .from("bookings")
-      .select(
-        "id, service_title, estimated_cost, payment_status, updated_at",
-      )
+      .select("id, service_title, estimated_cost, payment_status, updated_at")
       .eq("customer_id", user.uid)
       .eq("status", "completed")
       .order("updated_at", { ascending: false })
       .limit(3);
-
     setRecentInvoices(data ?? []);
   };
 
   const fetchNearbyTechnicians = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
-      .select("id, first_name, last_name, avatar_url, is_online")
+      .select(
+        "id, first_name, last_name, avatar_url, is_online, is_verified, location, technician_details(rank, years_experience, specialization, certification_level, exam_passing_score, is_nbi_cleared, is_police_cleared, bio)",
+      )
       .eq("role", "technician")
       .limit(8);
 
-    if (data) setNearbyTechs(data);
+    if (!error && data) {
+      // technician_details comes back as an array from the join; flatten to a single object
+      const normalized = data.map((tech: any) => ({
+        ...tech,
+        technician_details: Array.isArray(tech.technician_details)
+          ? (tech.technician_details[0] ?? null)
+          : tech.technician_details,
+      }));
+
+      // The join can "succeed" (no error) but still come back with every
+      // technician_details flattened to null — typically because a Row Level
+      // Security policy on technician_details is silently filtering out rows
+      // that don't belong to the current user, rather than raising an error.
+      // Treat that case the same as a hard failure and fall back to a manual
+      // merge (which, if RLS is truly the blocker, will surface the same gap
+      // so it shows up in the console instead of failing silently).
+      const hasAnyDetails = normalized.some(
+        (t: any) => t.technician_details != null,
+      );
+
+      if (normalized.length === 0 || hasAnyDetails) {
+        setNearbyTechs(normalized);
+        return;
+      }
+
+      console.warn(
+        "profiles→technician_details join returned no details for any technician " +
+          "(likely blocked by a Row Level Security policy on technician_details). " +
+          "Falling back to manual merge.",
+      );
+    } else {
+      // The embedded join failed — most likely there's no foreign key relationship
+      // registered between profiles and technician_details in Supabase yet.
+      console.warn(
+        "profiles→technician_details join failed, falling back to manual merge:",
+        error?.message,
+      );
+    }
+
+    // Fall back to fetching both tables separately and merging on the client.
+
+    const { data: profileRows, error: profileError } = await supabase
+      .from("profiles")
+      .select(
+        "id, first_name, last_name, avatar_url, is_online, is_verified, location",
+      )
+      .eq("role", "technician")
+      .limit(8);
+
+    if (profileError || !profileRows) {
+      console.error(
+        "Failed to fetch technician profiles:",
+        profileError?.message,
+      );
+      return;
+    }
+
+    const ids = profileRows.map((p) => p.id);
+    const { data: detailRows, error: detailError } = await supabase
+      .from("technician_details")
+      .select(
+        "id, rank, years_experience, specialization, certification_level, exam_passing_score, is_nbi_cleared, is_police_cleared, bio",
+      )
+      .in("id", ids);
+
+    if (detailError) {
+      console.error("Failed to fetch technician_details:", detailError.message);
+    } else if (ids.length > 0 && (detailRows?.length ?? 0) === 0) {
+      console.warn(
+        "technician_details returned 0 rows for known technician ids. " +
+          "This usually means a Row Level Security policy is blocking reads — " +
+          "add a SELECT policy on technician_details for customers/authenticated users.",
+      );
+    }
+
+    const detailsById = new Map((detailRows ?? []).map((d: any) => [d.id, d]));
+
+    const merged = profileRows.map((p) => ({
+      ...p,
+      technician_details: detailsById.get(p.id) ?? null,
+    }));
+
+    setNearbyTechs(merged);
+  };
+
+  const openTechnicianDetails = (tech: TechnicianDetails) => {
+    setSelectedTechnician(tech);
+    setTechModalVisible(true);
+  };
+
+  const closeTechnicianDetails = () => {
+    setTechModalVisible(false);
+    setSelectedTechnician(null);
+  };
+
+  const handleBookTechnician = (tech: TechnicianDetails) => {
+    setTechModalVisible(false);
+    router.push({
+      pathname: "/(customer)/book" as any,
+      params: { technicianId: tech.id },
+    });
   };
 
   const fetchNotifications = async () => {
     const user = auth.currentUser;
     if (!user) return;
-
     const { data } = await supabase
       .from("notifications")
       .select("*")
       .eq("user_id", user.uid)
       .order("created_at", { ascending: false })
       .limit(10);
-
-    if (data && data.length > 0) {
-      setNotifications(data);
-    } else if (activeJob?.status === "payment_pending") {
+    if (data && data.length > 0) setNotifications(data);
+    else if (activeJob?.status === "payment_pending")
       setNotifications([
         {
           id: `bill-${activeJob.id}`,
           title: "Invoice Ready for Payment",
-          body: `Your technician set the bill: ₱${Number(
-            activeJob.estimated_cost || 0,
-          ).toFixed(2)}. Tap to complete payment.`,
+          body: `Amount: ₱${Number(activeJob.estimated_cost || 0).toFixed(2)}`,
           read: false,
           created_at: new Date().toISOString(),
         },
       ]);
-    }
   };
 
   const markAllNotificationsAsRead = async () => {
     const user = auth.currentUser;
-    if (user) {
-      try {
-        await supabase
-          .from("notifications")
-          .update({ read: true })
-          .eq("user_id", user.uid);
-      } catch (error) {
-        console.error("Error marking notifications as read:", error);
-      }
-    }
+    if (user)
+      await supabase
+        .from("notifications")
+        .update({ read: true })
+        .eq("user_id", user.uid);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setNotificationsMenuVisible(false);
   };
@@ -357,17 +574,11 @@ function CustomerHomeScreenContent() {
           paid_at: new Date().toISOString(),
         })
         .eq("id", activeJob.id);
-
       if (error) throw error;
-
-      // Lock the chat thread for this job now that it's paid & completed —
-      // it stays visible in the conversation list (read-only) until the
-      // customer books this technician again.
       await supabase
         .from("chat_threads")
         .update({ is_locked: true })
         .eq("booking_id", activeJob.id);
-
       Alert.alert(
         "Payment Successful",
         "Thank you! Your job is now completed.",
@@ -383,15 +594,12 @@ function CustomerHomeScreenContent() {
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
-
   const handleBannerScroll = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const currentIndex = Math.round(contentOffsetX / BANNER_WIDTH);
-    if (currentIndex !== activeBannerIndex) {
-      setActiveBannerIndex(currentIndex);
-    }
+    if (currentIndex !== activeBannerIndex) setActiveBannerIndex(currentIndex);
   };
 
   return (
@@ -401,21 +609,22 @@ function CustomerHomeScreenContent() {
         backgroundColor="#F9FAFB"
         translucent
       />
-
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: Math.max(insets.top, 12) },
+          {
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: insets.bottom + 100,
+          },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Bar */}
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.greeting} numberOfLines={1}>
+            <Text style={styles.greeting}>
               Hello, {userProfile?.first_name || "there"}
             </Text>
-            <Text style={styles.subGreeting} numberOfLines={1} ellipsizeMode="tail">
+            <Text style={styles.subGreeting}>
               Need hardware repair or support today?
             </Text>
           </View>
@@ -437,7 +646,6 @@ function CustomerHomeScreenContent() {
                 </View>
               )}
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.avatarButton}
               onPress={() => router.push("/(customer)/(tabs)/settings" as any)}
@@ -456,17 +664,25 @@ function CustomerHomeScreenContent() {
           </View>
         </View>
 
-        {/* Search Bar */}
-        <TouchableOpacity
-          style={styles.searchBar}
-          activeOpacity={0.8}
-          onPress={() => router.push("/(customer)/(tabs)/search" as any)}
-        >
+        <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color="#9CA3AF" />
-          <Text style={styles.searchPlaceholder}>Search IT Services...</Text>
-        </TouchableOpacity>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search IT services, e.g. WiFi setup..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={handleSearchSubmit}
+            returnKeyType="search"
+            autoCorrect={false}
+          />
+          {isSearching && (
+            <TouchableOpacity onPress={clearSearch} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
+        </View>
 
-        {/* Quick Actions Grid */}
         <View style={styles.sectionMargin}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.quickActionsGrid}>
@@ -485,82 +701,77 @@ function CustomerHomeScreenContent() {
           </View>
         </View>
 
-        {/* Active Job Tracker Card — updates in real time as soon as a
-            technician is assigned or the job's status changes. */}
-        {activeJob && (
-          <View style={styles.activeJobCard}>
-            <View style={styles.activeJobHeader}>
-              <View style={styles.pulseDotWrap}>
-                <View style={styles.statusDot} />
-              </View>
-              <Text style={styles.activeJobTitle}>
-                {activeJob.status === "pending"
-                  ? "FINDING A TECHNICIAN"
-                  : `ACTIVE SERVICE · ${activeJob.status
-                      .replace("_", " ")
-                      .toUpperCase()}`}
-              </Text>
-            </View>
-
-            <Text style={styles.activeJobIssue} numberOfLines={1}>
-              {activeJob.service_title ||
-                activeJob.issue_description ||
-                "Hardware Support Request"}
-            </Text>
-
-            {activeJob.technician ? (
-              <View style={styles.activeJobTechRow}>
-                <View style={styles.activeJobTechAvatar}>
-                  {activeJob.technician.avatar_url ? (
-                    <Image
-                      source={{ uri: activeJob.technician.avatar_url }}
-                      style={styles.activeJobTechAvatarImg}
+        {activeJob &&
+          (() => {
+            const statusMeta = getJobStatusMeta(activeJob.status);
+            const technicianName = activeJob.technician
+              ? `${activeJob.technician.first_name ?? ""} ${
+                  activeJob.technician.last_name ?? ""
+                }`.trim()
+              : "";
+            return (
+              <View style={styles.activeJobCard}>
+                <View style={styles.activeJobTopRow}>
+                  <View
+                    style={[
+                      styles.activeJobStatusPill,
+                      { backgroundColor: `${statusMeta.color}26` },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.statusDot,
+                        { backgroundColor: statusMeta.color },
+                      ]}
                     />
-                  ) : (
-                    <Text style={styles.activeJobTechInitial}>
-                      {(activeJob.technician.first_name?.[0] ||
-                        "T"
-                      ).toUpperCase()}
+                    <Text
+                      style={[
+                        styles.activeJobStatusText,
+                        { color: statusMeta.color },
+                      ]}
+                    >
+                      {statusMeta.label}
+                    </Text>
+                  </View>
+                  {!!activeJob.id && (
+                    <Text style={styles.activeJobBookingId}>
+                      #{String(activeJob.id).slice(0, 8).toUpperCase()}
                     </Text>
                   )}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.activeJobTechName}>
-                    {activeJob.technician.first_name}{" "}
-                    {activeJob.technician.last_name}
-                  </Text>
-                  <Text style={styles.activeJobTechRole}>
-                    Your assigned technician
-                  </Text>
+
+                <View style={styles.activeJobBody}>
+                  <View style={styles.activeJobIconWrap}>
+                    <Ionicons
+                      name={statusMeta.icon}
+                      size={22}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.activeJobIssue} numberOfLines={1}>
+                      {activeJob.service_title || "Hardware Support Request"}
+                    </Text>
+                    <Text style={styles.activeJobSubtext} numberOfLines={1}>
+                      {technicianName
+                        ? `Technician: ${technicianName}`
+                        : "Waiting for technician assignment"}
+                    </Text>
+                  </View>
                 </View>
+
                 <TouchableOpacity
-                  style={styles.activeJobIconBtn}
-                  onPress={() => router.push("/(customer)/(tabs)/chat" as any)}
+                  style={styles.trackButton}
+                  onPress={() => router.push("/(customer)/track-order" as any)}
+                  activeOpacity={0.85}
                 >
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={17}
-                    color="#FFFFFF"
-                  />
+                  <Text style={styles.trackButtonText}>View Order Status</Text>
+                  <Ionicons name="arrow-forward" size={16} color="#111827" />
                 </TouchableOpacity>
               </View>
-            ) : (
-              <Text style={styles.activeJobTech}>
-                Waiting for a nearby technician to accept this job...
-              </Text>
-            )}
+            );
+          })()}
 
-            <TouchableOpacity
-              style={styles.trackButton}
-              onPress={() => router.push("/(customer)/track" as any)}
-            >
-              <Text style={styles.trackButtonText}>View Order Status</Text>
-              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Promotional Carousel */}
         <View style={styles.sectionMargin}>
           <ScrollView
             ref={bannerScrollRef}
@@ -602,57 +813,8 @@ function CustomerHomeScreenContent() {
               </View>
             ))}
           </ScrollView>
-
-          {/* Carousel Indicator Dots */}
-          <View style={styles.dotContainer}>
-            {PROMO_BANNERS.map((_, idx) => (
-              <View
-                key={idx}
-                style={[
-                  styles.dot,
-                  activeBannerIndex === idx
-                    ? styles.activeDot
-                    : styles.inactiveDot,
-                ]}
-              />
-            ))}
-          </View>
         </View>
 
-        {/* Popular Services Section */}
-        <View style={styles.sectionMargin}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Popular Services</Text>
-            <TouchableOpacity
-              onPress={() => router.push("/(customer)/(tabs)/search" as any)}
-            >
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.popularList}>
-            {POPULAR_SERVICES.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.popularCard}
-                onPress={() => router.push("/(customer)/book" as any)}
-              >
-                <View style={styles.popularIconWrap}>
-                  <Ionicons name={item.icon} size={22} color="#111827" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.popularTitle}>{item.title}</Text>
-                  <Text style={styles.popularDesc} numberOfLines={1}>
-                    {item.desc}
-                  </Text>
-                </View>
-                <Text style={styles.popularPrice}>{item.price}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Categories Section */}
         <View style={styles.sectionMargin}>
           <Text style={styles.sectionTitle}>Categories</Text>
           <ScrollView
@@ -676,59 +838,109 @@ function CustomerHomeScreenContent() {
                 All
               </Text>
             </TouchableOpacity>
-
-            {CATEGORIES.map((cat) => {
-              const isSelected = selectedCategory === cat;
-              return (
-                <TouchableOpacity
-                  key={cat}
+            {CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat}
+                style={[
+                  styles.categoryChip,
+                  selectedCategory === cat && styles.categoryChipActive,
+                ]}
+                onPress={() => setSelectedCategory(cat)}
+              >
+                <Text
                   style={[
-                    styles.categoryChip,
-                    isSelected && styles.categoryChipActive,
+                    styles.categoryChipText,
+                    selectedCategory === cat && styles.categoryChipTextActive,
                   ]}
-                  onPress={() => setSelectedCategory(cat)}
                 >
-                  <Text
-                    style={[
-                      styles.categoryChipText,
-                      isSelected && styles.categoryChipTextActive,
-                    ]}
-                  >
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                  {cat}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </ScrollView>
         </View>
 
-        {/* Nearby Technicians Section */}
+        <View style={styles.sectionMargin}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              {isSearching
+                ? `Results for "${searchQuery.trim()}"`
+                : "Popular Services"}
+            </Text>
+            {!isSearching && (
+              <TouchableOpacity
+                onPress={() => router.push("/(customer)/services" as any)}
+              >
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {displayedServices.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="search-outline" size={28} color="#9CA3AF" />
+              <Text style={styles.emptyStateText}>
+                No services match your search.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.popularList}>
+              {displayedServices.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.popularCard}
+                  onPress={() => router.push("/(customer)/book" as any)}
+                >
+                  <View style={styles.popularIconWrap}>
+                    <Ionicons name={item.icon} size={22} color="#111827" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.popularTitle}>{item.title}</Text>
+                    <Text style={styles.popularDesc} numberOfLines={1}>
+                      {item.desc}
+                    </Text>
+                  </View>
+                  <Text style={styles.popularPrice}>{item.price}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
         <View style={styles.sectionMargin}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Available Technicians</Text>
-            <TouchableOpacity
-              onPress={() => router.push("/(customer)/(tabs)/search" as any)}
-            >
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
           </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 12 }}
-          >
-            {nearbyTechs.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No technicians online nearby.
+          {filteredTechs.length === 0 ? (
+            <View style={styles.techEmptyState}>
+              <Ionicons name="people-outline" size={20} color="#9CA3AF" />
+              <Text style={styles.techEmptyStateText}>
+                {isSearching
+                  ? "No technicians match your search."
+                  : "No technicians available right now."}
               </Text>
-            ) : (
-              nearbyTechs.map((tech) => (
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 12 }}
+            >
+              {filteredTechs.map((tech) => (
                 <TouchableOpacity
                   key={tech.id}
                   style={styles.techCard}
-                  onPress={() => router.push("/(customer)/book" as any)}
+                  activeOpacity={0.8}
+                  onPress={() => openTechnicianDetails(tech)}
                 >
+                  {tech.is_verified && (
+                    <View style={styles.techVerifiedBadge}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={14}
+                        color="#3B82F6"
+                      />
+                    </View>
+                  )}
                   <View style={styles.techAvatarWrap}>
                     {tech.avatar_url ? (
                       <Image
@@ -745,133 +957,208 @@ function CustomerHomeScreenContent() {
                     {tech.is_online && <View style={styles.onlineBadge} />}
                   </View>
                   <Text style={styles.techName} numberOfLines={1}>
-                    {tech.first_name} {tech.last_name}
+                    {tech.first_name}
                   </Text>
-                  <Text style={styles.techRole}>Hardware Expert</Text>
+                  {!!tech.technician_details?.specialization && (
+                    <Text style={styles.techSpecialization} numberOfLines={1}>
+                      {tech.technician_details.specialization}
+                    </Text>
+                  )}
+                  {!!tech.technician_details?.rank && (
+                    <View style={styles.techRankChip}>
+                      <Text style={styles.techRankChipText} numberOfLines={1}>
+                        {tech.technician_details.rank}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.techViewBtn}>
+                    <Text style={styles.techViewBtnText}>View Profile</Text>
+                  </View>
                 </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
+              ))}
+            </ScrollView>
+          )}
         </View>
 
-        {/* Payment History Section (formerly "Recent Invoices") */}
-        {recentInvoices.length > 0 && (
-          <View style={styles.sectionMargin}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Payment History</Text>
-              <TouchableOpacity
-                onPress={() => router.push("/(customer)/invoices" as any)}
-              >
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
+        {!isSearching && (
+          <>
+            <View style={styles.trustBar}>
+              {TRUST_STATS.map((stat, i) => (
+                <React.Fragment key={stat.id}>
+                  <View style={styles.trustStat}>
+                    <View style={styles.trustStatHeader}>
+                      <Ionicons name={stat.icon} size={14} color="#FBBF24" />
+                      <Text style={styles.trustStatValue}>{stat.value}</Text>
+                    </View>
+                    <Text style={styles.trustStatLabel}>{stat.label}</Text>
+                  </View>
+                  {i < TRUST_STATS.length - 1 && (
+                    <View style={styles.trustDivider} />
+                  )}
+                </React.Fragment>
+              ))}
             </View>
 
-            <View style={styles.invoicePreviewList}>
-              {recentInvoices.map((inv) => {
-                const isPaid = inv.payment_status === "paid";
-                return (
-                  <TouchableOpacity
-                    key={inv.id}
-                    style={styles.invoicePreviewCard}
-                    onPress={() => router.push("/(customer)/invoices" as any)}
-                  >
-                    <View style={styles.invoicePreviewIconWrap}>
-                      <Ionicons
-                        name="receipt-outline"
-                        size={18}
-                        color="#111827"
-                      />
+            <View style={styles.sectionMargin}>
+              <Text style={styles.sectionTitle}>Why Choose Us</Text>
+              <View style={styles.whyChooseList}>
+                {WHY_CHOOSE_ITEMS.map((item) => (
+                  <View key={item.title} style={styles.whyChooseCard}>
+                    <View style={styles.whyChooseIconWrap}>
+                      <Ionicons name={item.icon} size={20} color="#111827" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.invoicePreviewTitle} numberOfLines={1}>
-                        {inv.service_title || "IT Service"}
-                      </Text>
-                      <Text style={styles.invoicePreviewDate}>
-                        {new Date(inv.updated_at).toLocaleDateString("en-PH", {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </Text>
+                      <Text style={styles.whyChooseTitle}>{item.title}</Text>
+                      <Text style={styles.whyChooseDesc}>{item.desc}</Text>
                     </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={styles.invoicePreviewAmount}>
-                        ₱{Number(inv.estimated_cost || 0).toFixed(2)}
-                      </Text>
-                      <View
-                        style={[
-                          styles.invoicePreviewBadge,
-                          isPaid
-                            ? styles.invoicePreviewBadgePaid
-                            : styles.invoicePreviewBadgeUnpaid,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.invoicePreviewBadgeText,
-                            { color: isPaid ? "#10B981" : "#F59E0B" },
-                          ]}
-                        >
-                          {isPaid ? "Paid" : "Unpaid"}
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.sectionMargin}>
+              <Text style={styles.sectionTitle}>How It Works</Text>
+              <View style={styles.stepsList}>
+                {HOW_IT_WORKS_STEPS.map((step, i) => (
+                  <View key={step.id} style={styles.stepRow}>
+                    <View style={styles.stepIconColumn}>
+                      <View style={styles.stepIconWrap}>
+                        <Ionicons name={step.icon} size={18} color="#FFFFFF" />
+                      </View>
+                      {i < HOW_IT_WORKS_STEPS.length - 1 && (
+                        <View style={styles.stepConnector} />
+                      )}
+                    </View>
+                    <View style={styles.stepTextWrap}>
+                      <Text style={styles.stepTitle}>{step.title}</Text>
+                      <Text style={styles.stepDesc}>{step.desc}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {recentInvoices.length > 0 && (
+              <View style={styles.sectionMargin}>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>Recent Invoices</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push("/(customer)/invoices" as any)}
+                  >
+                    <Text style={styles.seeAllText}>See All</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.popularList}>
+                  {recentInvoices.map((invoice) => (
+                    <TouchableOpacity
+                      key={invoice.id}
+                      style={styles.invoiceCard}
+                      onPress={() => router.push("/(customer)/invoices" as any)}
+                    >
+                      <View style={styles.invoiceIconWrap}>
+                        <Ionicons
+                          name="receipt-outline"
+                          size={20}
+                          color="#111827"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.popularTitle} numberOfLines={1}>
+                          {invoice.service_title || "Repair Service"}
+                        </Text>
+                        <Text style={styles.popularDesc}>
+                          {new Date(invoice.updated_at).toLocaleDateString()}
                         </Text>
                       </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        )}
-
-        {/* Why Choose Us Section */}
-        <View style={styles.sectionMargin}>
-          <Text style={styles.sectionTitle}>Why ITKonek?</Text>
-          <View style={styles.whyChooseContainer}>
-            {WHY_CHOOSE_ITEMS.map((item, index) => (
-              <View key={index} style={styles.whyChooseItem}>
-                <View style={styles.whyIconWrap}>
-                  <Ionicons name={item.icon} size={20} color="#111827" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.whyTitle}>{item.title}</Text>
-                  <Text style={styles.whyDesc}>{item.desc}</Text>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={styles.popularPrice}>
+                          ₱{Number(invoice.estimated_cost || 0).toFixed(2)}
+                        </Text>
+                        <View
+                          style={[
+                            styles.invoiceStatusPill,
+                            invoice.payment_status === "paid" &&
+                              styles.invoiceStatusPillPaid,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.invoiceStatusText,
+                              invoice.payment_status === "paid" &&
+                                styles.invoiceStatusTextPaid,
+                            ]}
+                          >
+                            {invoice.payment_status === "paid"
+                              ? "Paid"
+                              : "Pending"}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
-            ))}
-          </View>
-        </View>
+            )}
+
+            <View style={styles.sectionMargin}>
+              <Text style={styles.sectionTitle}>What Customers Say</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 12 }}
+              >
+                {TESTIMONIALS.map((review) => (
+                  <View key={review.id} style={styles.testimonialCard}>
+                    <View style={styles.testimonialStars}>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Ionicons
+                          key={i}
+                          name={i < review.rating ? "star" : "star-outline"}
+                          size={13}
+                          color="#FBBF24"
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.testimonialText} numberOfLines={4}>
+                      "{review.text}"
+                    </Text>
+                    <Text style={styles.testimonialName}>{review.name}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+
+            <TouchableOpacity
+              style={styles.supportCard}
+              activeOpacity={0.85}
+              onPress={() => router.push("/(customer)/help" as any)}
+            >
+              <View style={styles.supportIconWrap}>
+                <Ionicons name="headset-outline" size={22} color="#111827" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.supportTitle}>Need Help?</Text>
+                <Text style={styles.supportDesc}>
+                  Our support team is available 24/7 to assist you.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#111827" />
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
 
-      {/* BILLING MODAL */}
+      <TechnicianDetailModal
+        visible={techModalVisible}
+        technician={selectedTechnician}
+        onClose={closeTechnicianDetails}
+        onBook={handleBookTechnician}
+      />
+
       <Modal visible={billingModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Ionicons
-              name="receipt-outline"
-              size={48}
-              color="#111827"
-              style={{ alignSelf: "center", marginBottom: 12 }}
-            />
             <Text style={styles.modalTitle}>Bill Ready for Payment</Text>
-            <Text style={styles.modalSubtitle}>
-              Your technician has finalized the repair bill.
-            </Text>
-
-            <View style={styles.billDetailsCard}>
-              <View style={styles.billRow}>
-                <Text style={styles.billLabel}>Service Issue:</Text>
-                <Text style={styles.billValue}>
-                  {activeJob?.issue_description || "IT Service"}
-                </Text>
-              </View>
-              <View style={styles.billDivider} />
-              <View style={styles.billRow}>
-                <Text style={styles.billTotalLabel}>Total Amount Due:</Text>
-                <Text style={styles.billTotalValue}>
-                  ₱{Number(activeJob?.estimated_cost || 0).toFixed(2)}
-                </Text>
-              </View>
-            </View>
-
             <TouchableOpacity
               style={styles.payNowBtn}
               onPress={handlePayBill}
@@ -887,139 +1174,63 @@ function CustomerHomeScreenContent() {
         </View>
       </Modal>
 
-      {/* NOTIFICATIONS MODAL WITH 3-DOT ACTION MENU */}
       <Modal
         visible={notificationsModalVisible}
         transparent
         animationType="fade"
+        onRequestClose={() => setNotificationsModalVisible(false)}
       >
-        <TouchableWithoutFeedback
-          onPress={() => {
-            setNotificationsModalVisible(false);
-            setNotificationsMenuVisible(false);
-          }}
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setNotificationsModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.notifModalCard}>
-                {/* Header Row */}
-                <View style={styles.notifHeaderRow}>
-                  <Text style={styles.notifHeaderTitle}>Notifications</Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 12,
-                    }}
-                  >
-                    {/* 3-Dot Options Button */}
-                    <TouchableOpacity
-                      style={styles.threeDotBtn}
-                      onPress={() =>
-                        setNotificationsMenuVisible(!notificationsMenuVisible)
-                      }
-                    >
-                      <Ionicons
-                        name="ellipsis-vertical"
-                        size={20}
-                        color="#374151"
-                      />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={() => {
-                        setNotificationsModalVisible(false);
-                        setNotificationsMenuVisible(false);
-                      }}
-                    >
-                      <Ionicons
-                        name="close-circle-outline"
-                        size={24}
-                        color="#6B7280"
-                      />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* 3-Dot Options Popover Dropdown */}
-                  {notificationsMenuVisible && (
-                    <View style={styles.optionsDropdown}>
-                      <TouchableOpacity
-                        style={styles.dropdownOption}
-                        onPress={markAllNotificationsAsRead}
-                      >
-                        <Ionicons
-                          name="checkmark-done-outline"
-                          size={16}
-                          color="#111827"
-                        />
-                        <Text style={styles.dropdownOptionText}>
-                          Mark all as read
-                        </Text>
-                      </TouchableOpacity>
-
-                      <View style={styles.dropdownDivider} />
-
-                      <TouchableOpacity
-                        style={styles.dropdownOption}
-                        onPress={() => {
-                          setNotificationsMenuVisible(false);
-                          setNotificationsModalVisible(false);
-                          router.push("/(customer)/notification" as any);
-                        }}
-                      >
-                        <Ionicons
-                          name="settings-outline"
-                          size={16}
-                          color="#111827"
-                        />
-                        <Text style={styles.dropdownOptionText}>
-                          Notification Settings
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-
-                {/* Notifications List */}
-                <ScrollView
-                  style={{ maxHeight: 360 }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {notifications.length === 0 ? (
-                    <Text style={styles.emptyNotifText}>
-                      No notifications right now.
-                    </Text>
-                  ) : (
-                    notifications.map((notif) => (
-                      <View
-                        key={notif.id}
-                        style={[
-                          styles.notifItem,
-                          !notif.read && styles.notifItemUnread,
-                        ]}
-                      >
-                        <View style={styles.notifIconWrap}>
-                          <Ionicons
-                            name="notifications"
-                            size={18}
-                            color="#111827"
-                          />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.notifItemTitle}>
-                            {notif.title}
-                          </Text>
-                          <Text style={styles.notifItemBody}>{notif.body}</Text>
-                        </View>
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.notifCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.notifHeader}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              {notifications.length > 0 && (
+                <TouchableOpacity onPress={markAllNotificationsAsRead}>
+                  <Text style={styles.notifMarkRead}>Mark all read</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {notifications.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons
+                  name="notifications-off-outline"
+                  size={26}
+                  color="#9CA3AF"
+                />
+                <Text style={styles.emptyStateText}>You're all caught up.</Text>
               </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }}>
+                {notifications.map((n) => (
+                  <View
+                    key={n.id}
+                    style={[
+                      styles.notifItem,
+                      !n.read && styles.notifItemUnread,
+                    ]}
+                  >
+                    <Text style={styles.notifItemTitle}>{n.title}</Text>
+                    <Text style={styles.notifItemBody}>{n.body}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+            <TouchableOpacity
+              style={styles.notifCloseBtn}
+              onPress={() => setNotificationsModalVisible(false)}
+            >
+              <Text style={styles.notifCloseBtnText}>Close</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -1035,7 +1246,7 @@ export default function CustomerHomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F9FAFB" },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
+  scrollContent: { paddingHorizontal: 20 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1045,7 +1256,6 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 20, fontWeight: "800", color: "#111827" },
   subGreeting: { fontSize: 13, color: "#6B7280", marginTop: 2 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
-
   bellButton: {
     width: 42,
     height: 42,
@@ -1055,7 +1265,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    position: "relative",
   },
   badgeContainer: {
     position: "absolute",
@@ -1065,19 +1274,12 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-  badgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-
+  badgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   avatarButton: {
     width: 42,
     height: 42,
@@ -1089,7 +1291,6 @@ const styles = StyleSheet.create({
   },
   avatarImage: { width: "100%", height: "100%", borderRadius: 21 },
   avatarInitial: { color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
-
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -1101,10 +1302,30 @@ const styles = StyleSheet.create({
     height: 48,
     gap: 10,
     marginBottom: 20,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
-  searchPlaceholder: { color: "#9CA3AF", fontSize: 14, fontWeight: "500" },
-
-  /* Quick Actions Styles */
+  searchInput: {
+    flex: 1,
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "500",
+    height: "100%",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 32,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 8,
+  },
+  emptyStateText: { color: "#9CA3AF", fontSize: 13, fontWeight: "600" },
   quickActionsGrid: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1136,76 +1357,81 @@ const styles = StyleSheet.create({
     color: "#111827",
     textAlign: "center",
   },
-
   activeJobCard: {
     backgroundColor: "#111827",
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     marginBottom: 20,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  activeJobHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pulseDotWrap: { alignItems: "center", justifyContent: "center" },
+  activeJobTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  activeJobStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
   statusDot: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
     backgroundColor: "#10B981",
   },
-  activeJobTitle: {
+  activeJobStatusText: {
     color: "#10B981",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
-  activeJobIssue: {
-    color: "#FFFFFF",
-    fontSize: 15,
+  activeJobBookingId: {
+    color: "#6B7280",
+    fontSize: 11,
     fontWeight: "700",
-    marginTop: 4,
+    letterSpacing: 0.3,
   },
-  activeJobTech: { color: "#9CA3AF", fontSize: 13, marginTop: 8 },
-  activeJobTechRow: {
+  activeJobBody: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginTop: 12,
-    backgroundColor: "#1F2937",
+    gap: 12,
+    marginTop: 16,
+  },
+  activeJobIconWrap: {
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    padding: 10,
-  },
-  activeJobTechAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#374151",
+    backgroundColor: "#1F2937",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
-  activeJobTechAvatarImg: { width: "100%", height: "100%" },
-  activeJobTechInitial: { color: "#FFFFFF", fontWeight: "800", fontSize: 14 },
-  activeJobTechName: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-  activeJobTechRole: { color: "#9CA3AF", fontSize: 11, marginTop: 1 },
-  activeJobIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
+  activeJobIssue: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+  activeJobSubtext: {
+    color: "#9CA3AF",
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 3,
   },
   trackButton: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#1F2937",
-    paddingVertical: 10,
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 10,
-    marginTop: 12,
+    borderRadius: 12,
+    marginTop: 16,
   },
-  trackButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-
+  trackButtonText: { color: "#111827", fontSize: 13, fontWeight: "800" },
   sectionMargin: { marginBottom: 24 },
   sectionTitle: {
     fontSize: 17,
@@ -1220,7 +1446,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   seeAllText: { fontSize: 13, color: "#111827", fontWeight: "700" },
-
   bannerCard: {
     borderRadius: 18,
     padding: 18,
@@ -1230,12 +1455,7 @@ const styles = StyleSheet.create({
     minHeight: 140,
   },
   bannerTitle: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
-  bannerSubtitle: {
-    color: "#94A3B8",
-    fontSize: 12,
-    marginTop: 4,
-    lineHeight: 16,
-  },
+  bannerSubtitle: { color: "#94A3B8", fontSize: 12, marginTop: 4 },
   bannerButton: {
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 14,
@@ -1245,18 +1465,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   bannerButtonText: { color: "#111827", fontWeight: "800", fontSize: 12 },
-  dotContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 10,
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
-  dot: { height: 6, borderRadius: 3 },
-  activeDot: { width: 18, backgroundColor: "#111827" },
-  inactiveDot: { width: 6, backgroundColor: "#D1D5DB" },
-
-  /* Popular Services Styles */
+  categoryChipActive: { backgroundColor: "#111827", borderColor: "#111827" },
+  categoryChipText: { color: "#374151", fontSize: 13, fontWeight: "600" },
+  categoryChipTextActive: { color: "#FFFFFF", fontWeight: "700" },
   popularList: { gap: 10 },
   popularCard: {
     flexDirection: "row",
@@ -1279,82 +1498,58 @@ const styles = StyleSheet.create({
   popularTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
   popularDesc: { fontSize: 11, color: "#6B7280", marginTop: 2 },
   popularPrice: { fontSize: 13, fontWeight: "800", color: "#111827" },
-
-  invoicePreviewList: { gap: 10 },
-  invoicePreviewCard: {
-    flexDirection: "row",
-    alignItems: "center",
+  techEmptyState: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
-    padding: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    gap: 12,
-  },
-  invoicePreviewIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "#F3F4F6",
+    paddingVertical: 24,
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
   },
-  invoicePreviewTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
-  invoicePreviewDate: { fontSize: 11, color: "#9CA3AF", marginTop: 2 },
-  invoicePreviewAmount: { fontSize: 14, fontWeight: "800", color: "#111827" },
-  invoicePreviewBadge: {
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 20,
-    borderWidth: 1,
+  techEmptyStateText: {
+    fontSize: 12.5,
+    color: "#9CA3AF",
+    fontWeight: "600",
+    textAlign: "center",
   },
-  invoicePreviewBadgePaid: {
-    backgroundColor: "#F0FDF4",
-    borderColor: "#10B981",
-  },
-  invoicePreviewBadgeUnpaid: {
-    backgroundColor: "#FFFBEB",
-    borderColor: "#F59E0B",
-  },
-  invoicePreviewBadgeText: { fontSize: 9, fontWeight: "800" },
-
-  categoryChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  categoryChipActive: { backgroundColor: "#111827", borderColor: "#111827" },
-  categoryChipText: { color: "#374151", fontSize: 13, fontWeight: "600" },
-  categoryChipTextActive: { color: "#FFFFFF", fontWeight: "700" },
-
   techCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 18,
+    padding: 14,
     alignItems: "center",
-    width: 100,
+    width: 132,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    shadowColor: "#111827",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
+    position: "relative",
   },
-  techAvatarWrap: { position: "relative", marginBottom: 8 },
-  techAvatar: { width: 48, height: 48, borderRadius: 24 },
+  techVerifiedBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    zIndex: 2,
+  },
+  techAvatarWrap: { position: "relative", marginBottom: 8, marginTop: 2 },
+  techAvatar: { width: 56, height: 56, borderRadius: 28 },
   techAvatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
-  techInitial: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  techInitial: { fontSize: 18, fontWeight: "800", color: "#111827" },
   onlineBadge: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
     backgroundColor: "#10B981",
     position: "absolute",
     bottom: 0,
@@ -1363,81 +1558,59 @@ const styles = StyleSheet.create({
     borderColor: "#FFFFFF",
   },
   techName: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "800",
     color: "#111827",
     textAlign: "center",
   },
-  techRole: {
-    fontSize: 10,
+  techSpecialization: {
+    fontSize: 10.5,
     color: "#6B7280",
-    marginTop: 2,
+    fontWeight: "600",
     textAlign: "center",
+    marginTop: 2,
+    textTransform: "capitalize",
   },
-  emptyText: { fontSize: 13, color: "#9CA3AF" },
-
-  whyChooseContainer: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    gap: 16,
-  },
-  whyChooseItem: { flexDirection: "row", alignItems: "center", gap: 12 },
-  whyIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
+  techRankChip: {
+    marginTop: 8,
     backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    maxWidth: "100%",
   },
-  whyTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
-  whyDesc: { fontSize: 11, color: "#6B7280", marginTop: 2 },
-
+  techRankChipText: {
+    fontSize: 9.5,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  techViewBtn: {
+    marginTop: 10,
+    width: "100%",
+    paddingVertical: 7,
+    borderRadius: 9,
+    backgroundColor: "#111827",
+    alignItems: "center",
+  },
+  techViewBtnText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     paddingHorizontal: 20,
   },
-  modalCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-  },
+  modalCard: { backgroundColor: "#FFFFFF", borderRadius: 20, padding: 20 },
   modalTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#111827",
     textAlign: "center",
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "center",
-    marginTop: 4,
     marginBottom: 16,
   },
-  billDetailsCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 20,
-  },
-  billRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  billLabel: { fontSize: 13, color: "#6B7280" },
-  billValue: { fontSize: 13, fontWeight: "700", color: "#111827" },
-  billDivider: { height: 1, backgroundColor: "#E5E7EB", marginVertical: 10 },
-  billTotalLabel: { fontSize: 14, fontWeight: "800", color: "#111827" },
-  billTotalValue: { fontSize: 16, fontWeight: "800", color: "#10B981" },
   payNowBtn: {
     backgroundColor: "#111827",
     borderRadius: 12,
@@ -1447,79 +1620,161 @@ const styles = StyleSheet.create({
   },
   payNowBtnText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
 
-  notifModalCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    position: "relative",
-  },
-  notifHeaderRow: {
+  trustBar: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
-    zIndex: 10,
+    backgroundColor: "#111827",
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginBottom: 24,
   },
-  notifHeaderTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  threeDotBtn: {
-    padding: 6,
-    borderRadius: 8,
-    backgroundColor: "#F3F4F6",
-  },
-  optionsDropdown: {
-    position: "absolute",
-    top: 36,
-    right: 36,
+  trustStat: { flex: 1, alignItems: "center", gap: 4 },
+  trustStatHeader: { flexDirection: "row", alignItems: "center", gap: 4 },
+  trustStatValue: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  trustStatLabel: { color: "#9CA3AF", fontSize: 11, fontWeight: "600" },
+  trustDivider: { width: 1, height: 28, backgroundColor: "#374151" },
+
+  whyChooseList: { gap: 10 },
+  whyChooseCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 6,
-    width: 180,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
-    zIndex: 100,
-  },
-  dropdownOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  dropdownOptionText: { fontSize: 13, fontWeight: "600", color: "#111827" },
-  dropdownDivider: { height: 1, backgroundColor: "#F3F4F6" },
-
-  notifItem: {
-    flexDirection: "row",
     gap: 12,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#F9FAFB",
-    marginBottom: 8,
   },
-  notifItemUnread: {
-    backgroundColor: "#EFF6FF",
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
-  },
-  notifIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#E5E7EB",
+  whyChooseIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
+  whyChooseTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
+  whyChooseDesc: { fontSize: 11, color: "#6B7280", marginTop: 2 },
+
+  stepsList: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  stepRow: { flexDirection: "row", gap: 12 },
+  stepIconColumn: { alignItems: "center" },
+  stepIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#111827",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepConnector: {
+    width: 2,
+    flex: 1,
+    minHeight: 24,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 4,
+  },
+  stepTextWrap: { flex: 1, paddingBottom: 18 },
+  stepTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
+  stepDesc: { fontSize: 11, color: "#6B7280", marginTop: 2 },
+
+  invoiceCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 12,
+  },
+  invoiceIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invoiceStatusPill: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: "#FEF3C7",
+  },
+  invoiceStatusPillPaid: { backgroundColor: "#D1FAE5" },
+  invoiceStatusText: { fontSize: 10, fontWeight: "700", color: "#B45309" },
+  invoiceStatusTextPaid: { color: "#047857" },
+
+  testimonialCard: {
+    width: 220,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 8,
+  },
+  testimonialStars: { flexDirection: "row", gap: 2 },
+  testimonialText: { fontSize: 12, color: "#374151", lineHeight: 17 },
+  testimonialName: { fontSize: 12, fontWeight: "700", color: "#111827" },
+
+  supportCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 12,
+    marginBottom: 8,
+  },
+  supportIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  supportTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
+  supportDesc: { fontSize: 11, color: "#6B7280", marginTop: 2 },
+
+  notifCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 20,
+    maxHeight: "70%",
+  },
+  notifHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  notifMarkRead: { fontSize: 12, fontWeight: "700", color: "#111827" },
+  notifItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  notifItemUnread: { backgroundColor: "#F9FAFB" },
   notifItemTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
   notifItemBody: { fontSize: 12, color: "#6B7280", marginTop: 2 },
-  emptyNotifText: {
-    textAlign: "center",
-    color: "#9CA3AF",
-    marginVertical: 20,
-    fontSize: 13,
+  notifCloseBtn: {
+    marginTop: 14,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
   },
+  notifCloseBtnText: { fontSize: 13, fontWeight: "700", color: "#111827" },
 });

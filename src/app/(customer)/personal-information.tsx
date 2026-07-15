@@ -71,13 +71,19 @@ export default function PersonalInformationScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.push("/(customer)/(tabs)/settings")}
+          style={styles.backButton}
+        >
           <Ionicons name="chevron-back" size={22} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.title}>Personal Information</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.row}>
           <View style={styles.halfField}>
             <Text style={styles.label}>First Name</Text>
@@ -148,7 +154,13 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 60 },
   row: { flexDirection: "row", gap: 12 },
   halfField: { flex: 1 },
-  label: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6, marginTop: 4 },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
+    marginTop: 4,
+  },
   input: {
     height: 48,
     borderWidth: 1,
@@ -163,7 +175,12 @@ const styles = StyleSheet.create({
   },
   inputDisabled: { backgroundColor: "#F3F4F6" },
   disabledText: { fontSize: 14, color: "#9CA3AF" },
-  helperText: { fontSize: 11, color: "#9CA3AF", marginTop: -8, marginBottom: 20 },
+  helperText: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: -8,
+    marginBottom: 20,
+  },
   saveButton: {
     backgroundColor: "#1A1A1A",
     borderRadius: 12,
