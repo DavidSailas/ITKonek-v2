@@ -1,43 +1,122 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../../config/firebase";
 import { supabase } from "../../../config/supabase";
 
+const COLORS = {
+  bg: "#0A0C0F",
+  surface: "#131619",
+  surfaceAlt: "#181C20",
+  border: "#232830",
+  borderSubtle: "#1B1F24",
+  accent: "#F5A623",
+  accentDim: "#4A3A1A",
+  blue: "#4C8DFF",
+  success: "#34D399",
+  successDim: "#123024",
+  danger: "#F87171",
+  textPrimary: "#F3F4F6",
+  textSecondary: "#8B929B",
+  textTertiary: "#565C64",
+};
+const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
+
 export default function TechnicianHomeScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets(); // Dynamically computes notch / status bar top spacing
+  const insets = useSafeAreaInsets();
 
   const [techProfile, setTechProfile] = useState<any>(null);
   const [isOnline, setIsOnline] = useState<boolean>(false);
   const [requests, setRequests] = useState<any[]>([]);
   const [activeJobsCount, setActiveJobsCount] = useState<number>(0);
   const [completedJobsCount, setCompletedJobsCount] = useState<number>(0);
+  const [totalTips, setTotalTips] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  // Session timer — tracks how long the technician has been online this session
+  const [onlineSince, setOnlineSince] = useState<Date | null>(null);
+  const [onlineElapsedLabel, setOnlineElapsedLabel] = useState<string>("");
 
   // Modal State
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [accepting, setAccepting] = useState<boolean>(false);
 
+  // Log Tip Modal State
+  const [logTipModalVisible, setLogTipModalVisible] = useState<boolean>(false);
+  const [tipAmountInput, setTipAmountInput] = useState<string>("");
+  const [tipNoteInput, setTipNoteInput] = useState<string>("");
+  const [submittingTip, setSubmittingTip] = useState<boolean>(false);
+
+  // Live-status pulse, only animates while online
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     fetchTechData();
     fetchRequests();
+    fetchTips();
+  }, []);
+
+  // Tick the "online for Xh Ym" label every 30s while online
+  useEffect(() => {
+    if (!onlineSince) {
+      setOnlineElapsedLabel("");
+      return;
+    }
+    const updateLabel = () => {
+      const diffMs = Date.now() - onlineSince.getTime();
+      const hrs = Math.floor(diffMs / (1000 * 60 * 60));
+      const mins = Math.floor((diffMs / (1000 * 60)) % 60);
+      setOnlineElapsedLabel(
+        hrs > 0 ? `Online ${hrs}h ${mins}m` : `Online ${mins}m`,
+      );
+    };
+    updateLabel();
+    const interval = setInterval(updateLabel, 30000);
+    return () => clearInterval(interval);
+  }, [onlineSince]);
+
+  useEffect(() => {
+    const fetchTechProfile = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("first_name, last_name, avatar_url")
+        .eq("id", user.uid)
+        .single();
+
+      if (error) {
+        console.error("Error fetching profile:", error);
+      } else {
+        setTechProfile(data);
+      }
+      setLoading(false);
+    };
+
+    fetchTechProfile();
   }, []);
 
   const fetchTechData = async () => {
@@ -46,13 +125,16 @@ export default function TechnicianHomeScreen() {
 
     const { data } = await supabase
       .from("profiles")
-      .select("first_name, last_name, is_online, avatar_url")
+      .select(
+        "first_name, last_name, is_online, avatar_url, rating, completed_jobs_count",
+      )
       .eq("id", user.uid)
       .maybeSingle();
 
     if (data) {
       setTechProfile(data);
       setIsOnline(!!data.is_online);
+      if (data.is_online) setOnlineSince(new Date());
     }
   };
 
@@ -91,11 +173,88 @@ export default function TechnicianHomeScreen() {
     setLoading(false);
   };
 
+  const fetchTips = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("tips")
+      .select("amount")
+      .eq("technician_id", user.uid);
+
+    if (data) {
+      const sum = data.reduce(
+        (acc, curr) => acc + (Number(curr.amount) || 0),
+        0,
+      );
+      setTotalTips(sum);
+    }
+  };
+
+  const openLogTipModal = () => {
+    setTipAmountInput("");
+    setTipNoteInput("");
+    setLogTipModalVisible(true);
+  };
+
+  const closeLogTipModal = () => {
+    if (submittingTip) return;
+    setLogTipModalVisible(false);
+    setTipAmountInput("");
+    setTipNoteInput("");
+  };
+
+  const handleLogTip = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Error", "You must be signed in to log a tip.");
+      return;
+    }
+
+    const parsedAmount = Number(tipAmountInput);
+    if (!tipAmountInput || isNaN(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert("Invalid Amount", "Please enter a valid tip amount.");
+      return;
+    }
+
+    setSubmittingTip(true);
+
+    const { error } = await supabase.from("tips").insert({
+      technician_id: user.uid,
+      amount: parsedAmount,
+      note: tipNoteInput.trim() || null,
+    });
+
+    setSubmittingTip(false);
+
+    if (error) {
+      console.error("Error logging tip:", error);
+      Alert.alert("Error", "Could not log this tip. Please try again.");
+      return;
+    }
+
+    setLogTipModalVisible(false);
+    setTipAmountInput("");
+    setTipNoteInput("");
+    await fetchTips();
+    Alert.alert(
+      "Tip Logged",
+      `₱${parsedAmount.toLocaleString()} added to your tips.`,
+    );
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchTechData(), fetchRequests(), fetchTips()]);
+    setRefreshing(false);
+  };
+
   const handleToggleOnline = async (value: boolean) => {
     const user = auth.currentUser;
     if (!user) return;
 
     setIsOnline(value);
+    setOnlineSince(value ? new Date() : null);
     const { error } = await supabase
       .from("profiles")
       .update({ is_online: value })
@@ -103,6 +262,7 @@ export default function TechnicianHomeScreen() {
 
     if (error) {
       setIsOnline(!value);
+      setOnlineSince(value ? null : new Date());
       Alert.alert("Error", "Could not update online status.");
     }
   };
@@ -168,14 +328,13 @@ export default function TechnicianHomeScreen() {
     });
   };
 
-  // Display top 3 requests for home view
   const displayedRequests = requests.slice(0, 3);
 
   return (
     <View style={styles.container}>
       <StatusBar
         barStyle="light-content"
-        backgroundColor="#0A0A0A"
+        backgroundColor={COLORS.bg}
         translucent
       />
 
@@ -200,16 +359,29 @@ export default function TechnicianHomeScreen() {
                 <Text style={styles.proBadgeText}>PRO</Text>
               </View>
             </View>
-            <Text style={styles.statusLabel}>
-              {isOnline ? "Online & Available" : "Offline"}
-            </Text>
+            <View style={styles.statusRow}>
+              <Animated.View
+                style={[
+                  styles.statusDot,
+                  isOnline
+                    ? { backgroundColor: COLORS.success }
+                    : { backgroundColor: COLORS.textTertiary },
+                  isOnline && { transform: [{ scale: pulseAnim }] },
+                ]}
+              />
+              <Text style={styles.statusLabel}>
+                {isOnline
+                  ? onlineElapsedLabel || "Online & Available"
+                  : "Offline"}
+              </Text>
+            </View>
           </View>
         </View>
 
         <Switch
           value={isOnline}
           onValueChange={handleToggleOnline}
-          trackColor={{ false: "#262626", true: "#10B981" }}
+          trackColor={{ false: "#262626", true: COLORS.success }}
           thumbColor="#FFFFFF"
         />
       </View>
@@ -217,51 +389,104 @@ export default function TechnicianHomeScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.accent}
+            colors={[COLORS.accent]}
+          />
+        }
       >
-        {/* Analytics Grid */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Ionicons name="flash-outline" size={20} color="#EAB308" />
-            <Text style={styles.statLabel}>Requests</Text>
-            <Text style={styles.statValue}>{requests.length}</Text>
+        <View style={styles.heroCard}>
+          <View style={styles.cornerTL} />
+          <View style={styles.cornerBR} />
+
+          <View style={styles.heroTopRow}>
+            <Text style={styles.heroEyebrow}>MY TIPS (THIS MONTH)</Text>
           </View>
 
-          <View style={styles.statCard}>
-            <Ionicons name="construct-outline" size={20} color="#3B82F6" />
-            <Text style={styles.statLabel}>Active</Text>
-            <Text style={styles.statValue}>{activeJobsCount}</Text>
-          </View>
+          <Text style={styles.heroAmount}>₱{totalTips.toLocaleString()}</Text>
 
-          <View style={styles.statCard}>
-            <Ionicons
-              name="checkmark-circle-outline"
-              size={20}
-              color="#10B981"
-            />
-            <Text style={styles.statLabel}>Completed</Text>
-            <Text style={styles.statValue}>{completedJobsCount}</Text>
+          <View style={styles.heroDivider} />
+
+          <View style={styles.heroBottomRow}>
+            <Text style={styles.heroSubLabel}>READY TO LOG CASH?</Text>
+            <TouchableOpacity
+              style={styles.logTipBtn}
+              onPress={openLogTipModal}
+            >
+              <Ionicons name="add" size={16} color={COLORS.accent} />
+              <Text style={styles.logTipBtnText}>Log Tip</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Requests Section Header */}
+        {/* Queue snapshot readout tiles */}
+        <View style={styles.statsGrid}>
+          <View style={styles.statCard}>
+            <View
+              style={[styles.statAccentBar, { backgroundColor: COLORS.accent }]}
+            />
+            <Ionicons name="flash-outline" size={18} color={COLORS.accent} />
+            <Text style={styles.statValue}>{requests.length}</Text>
+            <Text style={styles.statLabel}>REQUESTS</Text>
+          </View>
+
+          <View style={styles.statCard}>
+            <View
+              style={[styles.statAccentBar, { backgroundColor: COLORS.blue }]}
+            />
+            <Ionicons name="construct-outline" size={18} color={COLORS.blue} />
+            <Text style={styles.statValue}>{activeJobsCount}</Text>
+            <Text style={styles.statLabel}>ACTIVE</Text>
+          </View>
+
+          <View style={styles.statCard}>
+            <View
+              style={[
+                styles.statAccentBar,
+                { backgroundColor: COLORS.success },
+              ]}
+            />
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={18}
+              color={COLORS.success}
+            />
+            <Text style={styles.statValue}>{completedJobsCount}</Text>
+            <Text style={styles.statLabel}>COMPLETED</Text>
+          </View>
+        </View>
+
+        {/* Job Queue Section */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Available Requests</Text>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>Job Queue</Text>
+            {requests.length > 0 && (
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{requests.length}</Text>
+              </View>
+            )}
+          </View>
           {requests.length > 0 && (
             <TouchableOpacity
               onPress={() => router.push("/(technician)/(tabs)/jobs" as any)}
             >
-              <Text style={styles.viewAllText}>
-                View All ({requests.length})
-              </Text>
+              <Text style={styles.viewAllText}>View All</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {loading ? (
-          <ActivityIndicator color="#FFFFFF" style={{ marginTop: 20 }} />
+          <ActivityIndicator color={COLORS.accent} style={{ marginTop: 20 }} />
         ) : requests.length === 0 ? (
           <View style={styles.emptyCard}>
-            <Ionicons name="file-tray-outline" size={36} color="#444444" />
+            <Ionicons
+              name="file-tray-outline"
+              size={32}
+              color={COLORS.textTertiary}
+            />
             <Text style={styles.emptyTitle}>No Requests Available</Text>
             <Text style={styles.emptySub}>
               New customer bookings will appear here in real time.
@@ -281,8 +506,8 @@ export default function TechnicianHomeScreen() {
                     <View style={styles.iconBadge}>
                       <Ionicons
                         name="person-outline"
-                        size={15}
-                        color="#FFFFFF"
+                        size={14}
+                        color={COLORS.textPrimary}
                       />
                     </View>
                     <Text style={styles.customerName}>
@@ -292,7 +517,11 @@ export default function TechnicianHomeScreen() {
                     </Text>
                   </View>
                   <View style={styles.timeTag}>
-                    <Ionicons name="time-outline" size={12} color="#888888" />
+                    <Ionicons
+                      name="time-outline"
+                      size={11}
+                      color={COLORS.textSecondary}
+                    />
                     <Text style={styles.timeTagText}>
                       {getTimeAgo(item.created_at)}
                     </Text>
@@ -307,8 +536,8 @@ export default function TechnicianHomeScreen() {
                   <View style={styles.locationRow}>
                     <Ionicons
                       name="location-outline"
-                      size={14}
-                      color="#888888"
+                      size={13}
+                      color={COLORS.textSecondary}
                     />
                     <Text style={styles.locationText} numberOfLines={1}>
                       {item.location_address}
@@ -326,8 +555,8 @@ export default function TechnicianHomeScreen() {
                     <Text style={styles.tapToViewText}>View Details</Text>
                     <Ionicons
                       name="chevron-forward"
-                      size={14}
-                      color="#FFFFFF"
+                      size={13}
+                      color={COLORS.accent}
                     />
                   </View>
                 </View>
@@ -343,11 +572,54 @@ export default function TechnicianHomeScreen() {
                 <Text style={styles.moreRequestsText}>
                   See All {requests.length} Requests
                 </Text>
-                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                <Ionicons
+                  name="arrow-forward"
+                  size={16}
+                  color={COLORS.textPrimary}
+                />
               </TouchableOpacity>
             )}
           </>
         )}
+
+        {/* Technician status panel — certification + performance readout */}
+        <View style={styles.statusPanel}>
+          <View style={styles.statusPanelAccentBar} />
+          <View style={styles.statusPanelBody}>
+            <View style={styles.certBadge}>
+              <Ionicons
+                name="shield-checkmark"
+                size={13}
+                color={COLORS.success}
+              />
+              <Text style={styles.certBadgeText}>CERTIFIED LEVEL 2</Text>
+            </View>
+            <Text style={styles.statusPanelTitle}>Technician Status</Text>
+            <Text style={styles.statusPanelDesc}>
+              All diagnostic tools are synced and calibrated for today&apos;s
+              tasks.
+            </Text>
+
+            <View style={styles.statusPanelRow}>
+              <View style={styles.statusPanelStat}>
+                <Text style={styles.statusPanelValue}>
+                  {completedJobsCount}
+                </Text>
+                <Text style={styles.statusPanelLabel}>COMPLETED</Text>
+              </View>
+              <View style={styles.statusPanelDividerV} />
+              <View style={styles.statusPanelStat}>
+                <Text style={styles.statusPanelValue}>4.9</Text>
+                <Text style={styles.statusPanelLabel}>RATING</Text>
+              </View>
+              <View style={styles.statusPanelDividerV} />
+              <View style={styles.statusPanelStat}>
+                <Text style={styles.statusPanelValue}>{activeJobsCount}</Text>
+                <Text style={styles.statusPanelLabel}>IN PROGRESS</Text>
+              </View>
+            </View>
+          </View>
+        </View>
       </ScrollView>
 
       {/* REQUEST DETAILS MODAL */}
@@ -374,7 +646,11 @@ export default function TechnicianHomeScreen() {
                     style={styles.closeButton}
                     onPress={() => setModalVisible(false)}
                   >
-                    <Ionicons name="close" size={20} color="#FFFFFF" />
+                    <Ionicons
+                      name="close"
+                      size={20}
+                      color={COLORS.textPrimary}
+                    />
                   </TouchableOpacity>
                 </View>
 
@@ -388,7 +664,7 @@ export default function TechnicianHomeScreen() {
                         <Ionicons
                           name="person-circle-outline"
                           size={24}
-                          color="#FFFFFF"
+                          color={COLORS.textPrimary}
                         />
                       </View>
                       <View style={{ flex: 1 }}>
@@ -420,7 +696,7 @@ export default function TechnicianHomeScreen() {
                         <Ionicons
                           name="calendar-outline"
                           size={16}
-                          color="#888888"
+                          color={COLORS.textSecondary}
                         />
                         <Text style={styles.metaText}>
                           {formatDate(
@@ -437,7 +713,7 @@ export default function TechnicianHomeScreen() {
                         <Ionicons
                           name="location-outline"
                           size={16}
-                          color="#888888"
+                          color={COLORS.textSecondary}
                         />
                         <Text style={styles.metaText}>
                           {selectedRequest.location_address ||
@@ -472,14 +748,14 @@ export default function TechnicianHomeScreen() {
                     disabled={accepting}
                   >
                     {accepting ? (
-                      <ActivityIndicator color="#000000" />
+                      <ActivityIndicator color="#0A0C0F" />
                     ) : (
                       <>
                         <Text style={styles.acceptBtnText}>Accept Request</Text>
                         <Ionicons
                           name="arrow-forward"
                           size={18}
-                          color="#000000"
+                          color="#0A0C0F"
                         />
                       </>
                     )}
@@ -490,6 +766,112 @@ export default function TechnicianHomeScreen() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {/* LOG TIP MODAL */}
+      <Modal
+        visible={logTipModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeLogTipModal}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <TouchableWithoutFeedback onPress={closeLogTipModal}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.modalContent}>
+                  <View style={styles.modalHandle} />
+
+                  <View style={styles.modalHeader}>
+                    <View>
+                      <Text style={styles.modalTitle}>Log Cash Tip</Text>
+                      <Text style={styles.modalTimeCreated}>
+                        Add a tip you received directly from a customer
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.closeButton}
+                      onPress={closeLogTipModal}
+                    >
+                      <Ionicons
+                        name="close"
+                        size={20}
+                        color={COLORS.textPrimary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.modalBody}>
+                    <View style={styles.detailBlock}>
+                      <Text style={styles.detailTitle}>Tip Amount (₱)</Text>
+                      <View style={styles.tipInputWrap}>
+                        <Text style={styles.tipInputPrefix}>₱</Text>
+                        <TextInput
+                          style={styles.tipInput}
+                          value={tipAmountInput}
+                          onChangeText={(text) =>
+                            setTipAmountInput(text.replace(/[^0-9.]/g, ""))
+                          }
+                          placeholder="0.00"
+                          placeholderTextColor={COLORS.textTertiary}
+                          keyboardType="decimal-pad"
+                          editable={!submittingTip}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.detailBlock}>
+                      <Text style={styles.detailTitle}>Note (Optional)</Text>
+                      <TextInput
+                        style={styles.tipNoteInput}
+                        value={tipNoteInput}
+                        onChangeText={setTipNoteInput}
+                        placeholder="e.g. Cash tip from Juan D."
+                        placeholderTextColor={COLORS.textTertiary}
+                        editable={!submittingTip}
+                        multiline
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={styles.declineBtn}
+                      onPress={closeLogTipModal}
+                      disabled={submittingTip}
+                    >
+                      <Text style={styles.declineBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.acceptBtn,
+                        submittingTip && { opacity: 0.7 },
+                      ]}
+                      onPress={handleLogTip}
+                      disabled={submittingTip}
+                    >
+                      {submittingTip ? (
+                        <ActivityIndicator color="#0A0C0F" />
+                      ) : (
+                        <>
+                          <Text style={styles.acceptBtnText}>Log Tip</Text>
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color="#0A0C0F"
+                          />
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -497,135 +879,240 @@ export default function TechnicianHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A0A0A",
+    backgroundColor: COLORS.bg,
   },
+
+  /* HEADER */
   topHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 14,
-    backgroundColor: "#0A0A0A",
+    backgroundColor: COLORS.bg,
     borderBottomWidth: 1,
-    borderBottomColor: "#1A1A1A",
+    borderBottomColor: COLORS.borderSubtle,
   },
-  userInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
+  userInfo: { flexDirection: "row", alignItems: "center", gap: 12 },
   avatarWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#1F1F1F",
+    width: 42,
+    height: 42,
+    borderRadius: 24,
+    backgroundColor: COLORS.surfaceAlt,
     borderWidth: 1,
-    borderColor: "#333333",
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarInitial: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  userName: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
+  avatarInitial: { color: COLORS.textPrimary, fontSize: 16, fontWeight: "800" },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  userName: { color: COLORS.textPrimary, fontSize: 15, fontWeight: "800" },
   proBadge: {
-    backgroundColor: "#1F1F1F",
+    backgroundColor: COLORS.accentDim,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: "#333333",
+    borderColor: "#5C4720",
   },
   proBadgeText: {
-    color: "#FFFFFF",
+    color: COLORS.accent,
     fontSize: 8,
     fontWeight: "800",
+    letterSpacing: 0.5,
   },
-  statusLabel: {
-    color: "#888888",
-    fontSize: 11,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 100,
-  },
-  statsGrid: {
+  statusRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 24,
+    alignItems: "center",
+    gap: 6,
+    marginTop: 3,
   },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusLabel: { color: COLORS.textSecondary, fontSize: 11, fontWeight: "600" },
+
+  /* SCROLL BODY */
+  scrollContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 100 },
+
+  /* HERO TIPS CARD */
+  heroCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 18,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  cornerTL: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 12,
+    height: 12,
+    borderTopWidth: 2,
+    borderLeftWidth: 2,
+    borderColor: COLORS.accent,
+    opacity: 0.5,
+  },
+  cornerBR: {
+    position: "absolute",
+    bottom: 10,
+    right: 10,
+    width: 12,
+    height: 12,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    borderColor: COLORS.accent,
+    opacity: 0.5,
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  heroEyebrow: {
+    color: COLORS.textTertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  heroAmount: {
+    color: COLORS.textPrimary,
+    fontSize: 40,
+    fontWeight: "800",
+    fontFamily: MONO,
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  heroDivider: {
+    height: 1,
+    backgroundColor: COLORS.borderSubtle,
+    marginBottom: 14,
+  },
+  heroBottomRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  heroSubLabel: {
+    color: COLORS.textTertiary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  logTipBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.accentDim,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+  },
+  logTipBtnText: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: "800",
+    marginLeft: 4,
+  },
+
+  /* QUEUE SNAPSHOT TILES */
+  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 24 },
   statCard: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: COLORS.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#222222",
+    borderColor: COLORS.border,
     padding: 14,
+    paddingTop: 16,
+    overflow: "hidden",
   },
+  statAccentBar: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
   statLabel: {
-    color: "#888888",
-    fontSize: 11,
-    marginTop: 6,
-  },
-  statValue: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "800",
+    color: COLORS.textTertiary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
     marginTop: 2,
   },
+  statValue: {
+    color: COLORS.textPrimary,
+    fontSize: 20,
+    fontWeight: "800",
+    fontFamily: MONO,
+    marginTop: 8,
+  },
+
+  /* SECTION HEADER */
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 14,
   },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   sectionTitle: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 16,
     fontWeight: "800",
   },
+  countBadge: {
+    backgroundColor: COLORS.accentDim,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
+  countBadgeText: {
+    color: COLORS.accent,
+    fontSize: 11,
+    fontWeight: "800",
+    fontFamily: MONO,
+  },
   viewAllText: {
-    color: "#888888",
+    color: COLORS.textSecondary,
     fontSize: 12,
     fontWeight: "700",
   },
+
+  /* EMPTY STATE */
   emptyCard: {
-    backgroundColor: "#121212",
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#222222",
+    borderColor: COLORS.border,
+    borderStyle: "dashed",
     padding: 30,
     alignItems: "center",
   },
   emptyTitle: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 15,
     fontWeight: "700",
     marginTop: 10,
   },
   emptySub: {
-    color: "#666666",
+    color: COLORS.textTertiary,
     fontSize: 12,
     textAlign: "center",
     marginTop: 4,
   },
+
+  /* REQUEST CARDS */
   requestCard: {
-    backgroundColor: "#121212",
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#222222",
+    borderColor: COLORS.border,
     padding: 16,
     marginBottom: 12,
   },
@@ -644,12 +1131,12 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: "#1F1F1F",
+    backgroundColor: COLORS.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
   },
   customerName: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 13,
     fontWeight: "700",
   },
@@ -659,11 +1146,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   timeTagText: {
-    color: "#888888",
+    color: COLORS.textSecondary,
     fontSize: 11,
   },
   serviceTitle: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 15,
     fontWeight: "800",
     marginBottom: 6,
@@ -675,7 +1162,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   locationText: {
-    color: "#888888",
+    color: COLORS.textSecondary,
     fontSize: 12,
     flex: 1,
   },
@@ -685,12 +1172,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#1A1A1A",
+    borderTopColor: COLORS.borderSubtle,
   },
   costText: {
-    color: "#10B981",
+    color: COLORS.success,
     fontSize: 14,
     fontWeight: "800",
+    fontFamily: MONO,
   },
   tapToView: {
     flexDirection: "row",
@@ -698,26 +1186,101 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tapToViewText: {
-    color: "#FFFFFF",
+    color: COLORS.accent,
     fontSize: 12,
     fontWeight: "700",
   },
   moreRequestsBtn: {
-    backgroundColor: "#181818",
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     height: 46,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#2A2A2A",
+    borderColor: COLORS.border,
     gap: 8,
     marginTop: 4,
   },
   moreRequestsText: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 13,
     fontWeight: "700",
+  },
+
+  /* TECHNICIAN STATUS PANEL */
+  statusPanel: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginTop: 4,
+    marginBottom: 20,
+    overflow: "hidden",
+  },
+  statusPanelAccentBar: {
+    width: 4,
+    backgroundColor: COLORS.success,
+  },
+  statusPanelBody: {
+    flex: 1,
+    padding: 18,
+  },
+  certBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.successDim,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+    marginBottom: 10,
+    gap: 4,
+  },
+  certBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: COLORS.success,
+    letterSpacing: 0.3,
+  },
+  statusPanelTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.textPrimary,
+  },
+  statusPanelDesc: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 4,
+    lineHeight: 17,
+  },
+  statusPanelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 18,
+  },
+  statusPanelStat: {
+    flex: 1,
+    alignItems: "center",
+  },
+  statusPanelDividerV: {
+    width: 1,
+    height: 28,
+    backgroundColor: COLORS.borderSubtle,
+  },
+  statusPanelValue: {
+    color: COLORS.textPrimary,
+    fontSize: 18,
+    fontWeight: "800",
+    fontFamily: MONO,
+  },
+  statusPanelLabel: {
+    color: COLORS.textTertiary,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginTop: 3,
   },
 
   /* MODAL STYLES */
@@ -727,18 +1290,18 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: "#121212",
+    backgroundColor: COLORS.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
-    borderColor: "#262626",
+    borderColor: COLORS.border,
     maxHeight: "85%",
     paddingBottom: Platform.OS === "ios" ? 34 : 20,
   },
   modalHandle: {
     width: 40,
     height: 4,
-    backgroundColor: "#333333",
+    backgroundColor: COLORS.border,
     borderRadius: 2,
     alignSelf: "center",
     marginTop: 10,
@@ -751,15 +1314,15 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#1F1F1F",
+    borderBottomColor: COLORS.borderSubtle,
   },
   modalTitle: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 18,
     fontWeight: "800",
   },
   modalTimeCreated: {
-    color: "#888888",
+    color: COLORS.textSecondary,
     fontSize: 11,
     marginTop: 2,
   },
@@ -767,7 +1330,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#1F1F1F",
+    backgroundColor: COLORS.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -778,11 +1341,11 @@ const styles = StyleSheet.create({
   infoBox: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#181818",
+    backgroundColor: COLORS.surfaceAlt,
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#262626",
+    borderColor: COLORS.border,
     gap: 12,
     marginBottom: 16,
   },
@@ -790,16 +1353,16 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#222222",
+    backgroundColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
   infoLabel: {
-    color: "#888888",
+    color: COLORS.textSecondary,
     fontSize: 11,
   },
   infoValue: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -807,7 +1370,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   detailTitle: {
-    color: "#777777",
+    color: COLORS.textTertiary,
     fontSize: 11,
     fontWeight: "700",
     textTransform: "uppercase",
@@ -815,13 +1378,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   serviceHeadline: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 15,
     fontWeight: "800",
     marginBottom: 4,
   },
   detailDesc: {
-    color: "#AAAAAA",
+    color: COLORS.textSecondary,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -831,30 +1394,31 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   metaText: {
-    color: "#DDDDDD",
+    color: COLORS.textPrimary,
     fontSize: 13,
     flex: 1,
   },
   priceContainer: {
-    backgroundColor: "#1A1A1A",
+    backgroundColor: COLORS.surfaceAlt,
     borderRadius: 14,
     padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#2A2A2A",
+    borderColor: COLORS.border,
     marginBottom: 20,
   },
   priceLabel: {
-    color: "#CCCCCC",
+    color: COLORS.textSecondary,
     fontSize: 13,
     fontWeight: "600",
   },
   priceAmount: {
-    color: "#10B981",
+    color: COLORS.success,
     fontSize: 20,
     fontWeight: "900",
+    fontFamily: MONO,
   },
   modalActions: {
     flexDirection: "row",
@@ -862,18 +1426,54 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 10,
   },
+  tipInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 14,
+  },
+  tipInputPrefix: {
+    color: COLORS.success,
+    fontSize: 20,
+    fontWeight: "800",
+    fontFamily: MONO,
+    marginRight: 6,
+  },
+  tipInput: {
+    flex: 1,
+    color: COLORS.textPrimary,
+    fontSize: 20,
+    fontWeight: "800",
+    fontFamily: MONO,
+    paddingVertical: 14,
+  },
+  tipNoteInput: {
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: COLORS.textPrimary,
+    fontSize: 13,
+    minHeight: 48,
+    textAlignVertical: "top",
+  },
   declineBtn: {
     flex: 1,
     height: 48,
     borderRadius: 12,
-    backgroundColor: "#1F1F1F",
+    backgroundColor: COLORS.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#333333",
+    borderColor: COLORS.border,
   },
   declineBtnText: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -881,14 +1481,14 @@ const styles = StyleSheet.create({
     flex: 2,
     height: 48,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.accent,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
   acceptBtnText: {
-    color: "#000000",
+    color: "#0A0C0F",
     fontSize: 14,
     fontWeight: "800",
   },

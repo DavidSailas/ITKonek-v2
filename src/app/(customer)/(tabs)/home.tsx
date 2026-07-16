@@ -146,13 +146,13 @@ const TRUST_STATS = [
   { id: "1", value: "4.9", label: "Avg. Rating", icon: "star" as const },
   {
     id: "2",
-    value: "12K+",
+    value: "1K+",
     label: "Repairs Done",
     icon: "checkmark-done-outline" as const,
   },
   {
     id: "3",
-    value: "500+",
+    value: "12+",
     label: "Technicians",
     icon: "people-outline" as const,
   },

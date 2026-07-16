@@ -3,19 +3,19 @@ import { useRouter } from "expo-router";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../config/firebase";
@@ -119,10 +119,9 @@ export default function TechLoginScreen() {
                     color="#FFFFFF"
                   />
                 </View>
-                <Text style={styles.mainTitle}>Technician Portal</Text>
+                <Text style={styles.mainTitle}>Welcome Back</Text>
                 <Text style={styles.subTitle}>
-                  Sign in to manage field service dispatches, customer requests,
-                  and job active status.
+                  Log in to manage your active jobs and requests.
                 </Text>
               </View>
 
@@ -184,9 +183,7 @@ export default function TechLoginScreen() {
                     <ActivityIndicator color="#000000" />
                   ) : (
                     <>
-                      <Text style={styles.submitBtnText}>
-                        Sign In to Portal
-                      </Text>
+                      <Text style={styles.submitBtnText}>Log In</Text>
                       <Ionicons
                         name="arrow-forward"
                         size={18}

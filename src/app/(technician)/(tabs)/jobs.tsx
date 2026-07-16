@@ -2,18 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    RefreshControl,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../../config/firebase";
@@ -105,7 +105,9 @@ export default function TechJobsScreen() {
       } else if (activeTab === "rescheduled") {
         // Scoped to this technician only — previously this leaked every
         // technician's rescheduled jobs since it had no technician filter.
-        query = query.eq("technician_id", user?.uid).eq("status", "rescheduled");
+        query = query
+          .eq("technician_id", user?.uid)
+          .eq("status", "rescheduled");
       } else if (activeTab === "cancelled") {
         query = query.eq("technician_id", user?.uid).eq("status", "cancelled");
       }
@@ -113,7 +115,10 @@ export default function TechJobsScreen() {
       const { data, error } = await query;
 
       if (error) {
-        if (error.code === "22P02" || /invalid input value for enum/i.test(error.message)) {
+        if (
+          error.code === "22P02" ||
+          /invalid input value for enum/i.test(error.message)
+        ) {
           // The 'rescheduled' status value hasn't been added to the
           // booking_status enum in the database yet (see SETUP.sql).
           // Fail quietly with an empty list instead of spamming the console.
@@ -223,7 +228,11 @@ export default function TechJobsScreen() {
     if (existing?.id) {
       ({ error } = await supabase
         .from("chat_threads")
-        .update({ is_locked: false, updated_at: timestamp, booking_id: bookingId })
+        .update({
+          is_locked: false,
+          updated_at: timestamp,
+          booking_id: bookingId,
+        })
         .eq("id", existing.id));
       if (error && /booking_id/i.test(error.message)) {
         ({ error } = await supabase
@@ -674,7 +683,8 @@ export default function TechJobsScreen() {
                             Total Billed
                           </Text>
                           <Text style={styles.invoiceRowValue}>
-                            ₱{Number(selectedJob.estimated_cost || 0).toFixed(2)}
+                            ₱
+                            {Number(selectedJob.estimated_cost || 0).toFixed(2)}
                           </Text>
                         </View>
                         <View style={styles.invoiceDivider} />
@@ -683,7 +693,8 @@ export default function TechJobsScreen() {
                             Your Earnings
                           </Text>
                           <Text style={styles.invoiceTotalValue}>
-                            ₱{Number(selectedJob.estimated_cost || 0).toFixed(2)}
+                            ₱
+                            {Number(selectedJob.estimated_cost || 0).toFixed(2)}
                           </Text>
                         </View>
                       </View>
@@ -832,6 +843,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: "#1A1A1A",

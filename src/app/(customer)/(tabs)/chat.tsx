@@ -248,6 +248,13 @@ export default function ChatScreen() {
               .map((n: string) => n[0]?.toUpperCase())
               .join("");
             const isOnline = onlineIds.has(thread.technician_id);
+            const isUnread =
+              !thread.is_locked &&
+              Boolean(thread.last_sender_id) &&
+              thread.last_sender_id !== auth.currentUser?.uid &&
+              (!thread.customer_last_read_at ||
+                new Date(thread.updated_at).getTime() >
+                  new Date(thread.customer_last_read_at).getTime());
 
             return (
               <TouchableOpacity
@@ -269,26 +276,41 @@ export default function ChatScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={styles.threadTopRow}>
-                    <Text style={styles.threadName} numberOfLines={1}>
+                    <Text
+                      style={[
+                        styles.threadName,
+                        isUnread && styles.threadNameUnread,
+                      ]}
+                      numberOfLines={1}
+                    >
                       {name}
                     </Text>
                     {!thread.is_locked && thread.updated_at && (
-                      <Text style={styles.threadTime}>
+                      <Text
+                        style={[
+                          styles.threadTime,
+                          isUnread && styles.threadTimeUnread,
+                        ]}
+                      >
                         {formatRelativeTime(thread.updated_at)}
                       </Text>
                     )}
                   </View>
-                  <Text
-                    style={[
-                      styles.threadPreview,
-                      thread.is_locked && styles.threadPreviewLocked,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {thread.is_locked
-                      ? "Conversation closed · job completed"
-                      : (thread.last_message ?? "Tap to open conversation")}
-                  </Text>
+                  <View style={styles.threadBottomRow}>
+                    <Text
+                      style={[
+                        styles.threadPreview,
+                        isUnread && styles.threadPreviewUnread,
+                        thread.is_locked && styles.threadPreviewLocked,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {thread.is_locked
+                        ? "Conversation closed · job completed"
+                        : (thread.last_message ?? "Tap to open conversation")}
+                    </Text>
+                    {isUnread && <View style={styles.unreadDot} />}
+                  </View>
                 </View>
                 {thread.is_locked ? (
                   <View style={styles.lockBadge}>
@@ -388,9 +410,24 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   threadName: { fontSize: 14, fontWeight: "700", color: "#111827", flex: 1 },
+  threadNameUnread: { fontWeight: "800" },
   threadTime: { fontSize: 10, color: "#9CA3AF", marginLeft: 8 },
-  threadPreview: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
+  threadTimeUnread: { color: "#2F6FED", fontWeight: "700" },
+  threadBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  threadPreview: { fontSize: 12, color: "#9CA3AF", marginTop: 2, flex: 1 },
+  threadPreviewUnread: { color: "#111827", fontWeight: "700" },
   threadPreviewLocked: { fontStyle: "italic" },
+  unreadDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#2F6FED",
+    marginLeft: 8,
+  },
   lockBadge: {
     flexDirection: "row",
     alignItems: "center",

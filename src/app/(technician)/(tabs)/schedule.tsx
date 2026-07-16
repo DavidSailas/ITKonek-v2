@@ -7,7 +7,6 @@ import {
   Alert,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -16,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../../config/firebase";
 import { supabase } from "../../../config/supabase";
 
@@ -41,6 +41,7 @@ const dateKey = (d: Date) =>
 
 export default function TechScheduleScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [jobs, setJobs] = useState<any[]>([]);
@@ -321,10 +322,12 @@ export default function TechScheduleScreen() {
   const today = new Date();
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" translucent />
 
-      <View style={styles.header}>
+      <View
+        style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 14 }]}
+      >
         <View>
           <Text style={styles.title}>Schedule & Shifts</Text>
           <Text style={styles.sub}>Manage your appointments and hours</Text>
@@ -334,7 +337,10 @@ export default function TechScheduleScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 80 }}
+      >
         {/* Month navigator */}
         <View style={styles.monthNav}>
           <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.navBtn}>
@@ -711,7 +717,7 @@ export default function TechScheduleScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

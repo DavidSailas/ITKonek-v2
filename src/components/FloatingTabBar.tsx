@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -10,6 +10,10 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+// NOTE: adjust these two import paths if FloatingTabBar.tsx doesn't sit
+// directly under /components — they need to resolve to your config folder.
+import { auth } from "../config/firebase";
+import { supabase } from "../config/supabase";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -46,6 +50,7 @@ export default function FloatingTabBar({
   const tabWidth = barWidth / totalTabs;
 
   const translateX = useRef(new Animated.Value(state.index * tabWidth)).current;
+  const [hasUnreadChats, setHasUnreadChats] = useState(false);
 
   useEffect(() => {
     Animated.spring(translateX, {
@@ -55,6 +60,54 @@ export default function FloatingTabBar({
       tension: 80,
     }).start();
   }, [state.index, tabWidth]);
+
+  // Red dot on the chat tab: works out unread state for whichever side of
+  // the conversation the signed-in user is on (customer or technician),
+  // using last_sender_id plus each side's own last-read timestamp.
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const computeUnread = (threads: any[]) =>
+      threads.some((t) => {
+        if (!t.last_sender_id || t.last_sender_id === uid) return false;
+        const isCustomer = t.customer_id === uid;
+        const lastReadAt = isCustomer
+          ? t.customer_last_read_at
+          : t.technician_last_read_at;
+        return !lastReadAt || new Date(t.updated_at) > new Date(lastReadAt);
+      });
+
+    const fetchUnread = async () => {
+      const { data, error } = await supabase
+        .from("chat_threads")
+        .select(
+          "customer_id, technician_id, last_sender_id, updated_at, customer_last_read_at, technician_last_read_at",
+        )
+        .or(`customer_id.eq.${uid},technician_id.eq.${uid}`);
+
+      if (error) {
+        console.warn("[FloatingTabBar] Unread check failed:", error.message);
+        return;
+      }
+      setHasUnreadChats(computeUnread(data ?? []));
+    };
+
+    fetchUnread();
+
+    const channel = supabase
+      .channel(`tabbar-chat-threads-${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "chat_threads" },
+        fetchUnread,
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const activeRoute = state.routes[state.index];
   const activeRouteName = activeRoute ? activeRoute.name : "home";
@@ -76,6 +129,9 @@ export default function FloatingTabBar({
         >
           <View style={styles.circleInner}>
             <Ionicons name={activeIcon} size={22} color="#0D0D0D" />
+            {activeRouteName === "chat" && hasUnreadChats && (
+              <View style={styles.unreadBadgeOnCircle} />
+            )}
           </View>
         </Animated.View>
 
@@ -113,11 +169,16 @@ export default function FloatingTabBar({
               {isFocused ? (
                 <Text style={styles.activeLabel}>{label}</Text>
               ) : (
-                <Ionicons
-                  name={iconConfig.inactive}
-                  size={20}
-                  color="#9CA3AF"
-                />
+                <View>
+                  <Ionicons
+                    name={iconConfig.inactive}
+                    size={20}
+                    color="#9CA3AF"
+                  />
+                  {route.name === "chat" && hasUnreadChats && (
+                    <View style={styles.unreadBadge} />
+                  )}
+                </View>
               )}
             </TouchableOpacity>
           );
@@ -171,5 +232,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 3,
     borderColor: "#0D0D0D",
+  },
+  unreadBadge: {
+    position: "absolute",
+    top: -2,
+    right: -5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EF4444",
+    borderWidth: 1.5,
+    borderColor: "#161616",
+  },
+  unreadBadgeOnCircle: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
 });

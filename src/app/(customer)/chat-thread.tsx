@@ -29,6 +29,9 @@ type ThreadInfo = {
   id: string;
   is_locked: boolean;
   technician_id: string;
+  last_sender_id: string | null;
+  customer_last_read_at: string | null;
+  technician_last_read_at: string | null;
   technician: {
     first_name: string | null;
     last_name: string | null;
@@ -80,8 +83,13 @@ export default function CustomerChatThread() {
     if (!threadId) return;
     fetchThreadInfo();
     fetchMessages();
-    const unsubscribe = subscribeToMessages();
-    return unsubscribe;
+    const unsubscribeMessages = subscribeToMessages();
+    const unsubscribeThread = subscribeToThreadUpdates();
+    markThreadAsRead();
+    return () => {
+      unsubscribeMessages();
+      unsubscribeThread();
+    };
   }, [threadId]);
 
   useEffect(() => {
@@ -111,7 +119,7 @@ export default function CustomerChatThread() {
     const { data, error } = await supabase
       .from("chat_threads")
       .select(
-        "id, is_locked, technician_id, technician:technician_id(first_name, last_name, avatar_url)",
+        "id, is_locked, technician_id, last_sender_id, customer_last_read_at, technician_last_read_at, technician:technician_id(first_name, last_name, avatar_url)",
       )
       .eq("id", threadId)
       .maybeSingle();
@@ -121,6 +129,48 @@ export default function CustomerChatThread() {
       return;
     }
     setThreadInfo(data as any);
+  };
+
+  // Marks this thread as read by the customer. Called on open, and again
+  // whenever a new message arrives while the thread is already on screen.
+  const markThreadAsRead = async () => {
+    const nowIso = new Date().toISOString();
+    setThreadInfo((prev) =>
+      prev ? { ...prev, customer_last_read_at: nowIso } : prev,
+    );
+    const { error } = await supabase
+      .from("chat_threads")
+      .update({ customer_last_read_at: nowIso })
+      .eq("id", threadId);
+    if (error) {
+      console.error("[chat-thread] Mark as read error:", error.message);
+    }
+  };
+
+  // Keeps threadInfo in sync when the technician's side updates the row —
+  // most importantly technician_last_read_at, which drives the "Seen" label.
+  const subscribeToThreadUpdates = () => {
+    const channel = supabase
+      .channel(`thread-updates-${threadId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "chat_threads",
+          filter: `id=eq.${threadId}`,
+        },
+        (payload) => {
+          setThreadInfo((prev) =>
+            prev ? { ...prev, ...(payload.new as any) } : prev,
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   };
 
   const fetchMessages = async () => {
@@ -171,7 +221,11 @@ export default function CustomerChatThread() {
           filter: `thread_id=eq.${threadId}`,
         },
         (payload) => {
-          mergeIncomingMessage(payload.new as Message);
+          const incoming = payload.new as Message;
+          mergeIncomingMessage(incoming);
+          if (incoming.sender_id !== auth.currentUser?.uid) {
+            markThreadAsRead();
+          }
         },
       )
       .subscribe();
@@ -223,12 +277,22 @@ export default function CustomerChatThread() {
       .from("chat_threads")
       .update({
         last_message: trimmed,
+        last_sender_id: auth.currentUser?.uid,
         updated_at: new Date().toISOString(),
       })
       .eq("id", threadId);
 
     setSending(false);
   };
+
+  const latestMessage = messages[0];
+  const showSeen =
+    Boolean(latestMessage) &&
+    !latestMessage.id.startsWith("temp-") &&
+    latestMessage.sender_id === auth.currentUser?.uid &&
+    Boolean(threadInfo?.technician_last_read_at) &&
+    new Date(threadInfo!.technician_last_read_at!).getTime() >=
+      new Date(latestMessage.created_at).getTime();
 
   const technicianName = threadInfo?.technician
     ? `${threadInfo.technician.first_name ?? ""} ${threadInfo.technician.last_name ?? ""}`.trim()
@@ -323,6 +387,14 @@ export default function CustomerChatThread() {
           inverted
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={
+            showSeen ? (
+              <View style={styles.seenWrap}>
+                <Ionicons name="checkmark-done" size={13} color="#2F6FED" />
+                <Text style={styles.seenText}>Seen</Text>
+              </View>
+            ) : null
+          }
           renderItem={({ item, index }) => {
             const isMe = item.sender_id === auth.currentUser?.uid;
             const isPending = item.id.startsWith("temp-");
@@ -507,6 +579,17 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 12, color: "#9CA3AF", textAlign: "center" },
 
   list: { padding: 16, paddingBottom: 8 },
+
+  seenWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 3,
+    marginRight: 4,
+    marginBottom: 10,
+  },
+  seenText: { fontSize: 10.5, color: "#2F6FED", fontWeight: "700" },
+
 
   dayLabelWrap: { alignItems: "center", marginVertical: 14 },
   dayLabelText: {
